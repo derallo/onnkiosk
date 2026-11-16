@@ -21,18 +21,21 @@ When an app is in **"Testing"** mode or has not completed Google's **OAuth App V
 
 ## 2. Step-by-Step Google Cloud Verification Checklist
 
-To eliminate the warning, complete these steps in the [Google Cloud Console (APIs & Services > OAuth consent screen)](https://console.cloud.google.com/apis/credentials/consent):
+**GCP Project:** `my-project-44994god-mode-app` (Project Number `138737365931`)  
+**OAuth Client ID:** `138737365931-jieu3ni30298oh8bg950sunmco1cn9tv.apps.googleusercontent.com`  
+**Demo Video (YouTube):** `https://www.youtube.com/watch?v=YmFoXqEqdi4` (`https://youtu.be/YmFoXqEqdi4`)
 
-### Step A: Configure Consent Screen Metadata
+To eliminate the warning, complete these steps in the [Google Cloud Console (Google Auth Platform)](https://console.cloud.google.com/auth/overview?project=my-project-44994god-mode-app):
+
+### Step A: Configure Consent Screen Metadata (Branding)
 1. **App Name**: `Onnkiosk`
-2. **User Support Email**: Your contact/admin email (e.g. `derek.pangallo@gmail.com`).
-3. **App Logo**: Upload a 120×120px app icon (the high-contrast Onnkiosk clock/display icon).
-4. **Application Home Page**: `https://github.com/derallo/onnkiosk`
-5. **Application Privacy Policy Link**: A public URL detailing how data is processed (e.g. `https://github.com/derallo/onnkiosk/blob/main/PRIVACY.md` or a hosted page).
-   > **Key Privacy Guarantee to State**: *"Onnkiosk connects directly to Google APIs over HTTPS to fetch calendars, tasks, and photos solely for local ambient display on your countertop tablet. No personal data, tokens, or credentials are sent to third parties or stored on intermediate servers."*
-6. **Application Terms of Service Link**: (Optional/Recommended) `https://github.com/derallo/onnkiosk/blob/main/TERMS.md`.
-7. **Authorized Domains**: Add your domain (e.g. `github.com` or custom personal domain).
-8. **Developer Contact Information**: Your contact email.
+2. **User Support Email**: `derek.pangallo@gmail.com`
+3. **App Logo**: [logo-120.png](https://derallo.github.io/onnkiosk/logo-120.png) (`docs/logo-120.png`, 120×120 PNG)
+4. **Application Home Page**: `https://derallo.github.io/onnkiosk/`
+5. **Application Privacy Policy Link**: `https://derallo.github.io/onnkiosk/privacy.html`
+6. **Application Terms of Service Link**: `https://derallo.github.io/onnkiosk/terms.html`
+7. **Authorized Domains**: `github.io`, `github.com`
+8. **Developer Contact Information**: `derek.pangallo@gmail.com`
 
 ### Step B: Declare Scopes & Justifications
 In the Scopes step, declare:

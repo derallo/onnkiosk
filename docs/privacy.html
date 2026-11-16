@@ -1,0 +1,45 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Privacy Policy — Onnkiosk</title>
+  <style>
+    :root { --bg: #0f1115; --card: #181b22; --border: #2c313d; --ink: #f5f2eb; --muted: #b0aca2; --gold: #d4af37; }
+    body { font-family: system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif; background: var(--bg); color: var(--ink); line-height: 1.7; max-width: 860px; margin: 0 auto; padding: 48px 24px; }
+    h1 { font-size: 30px; margin-bottom: 6px; }
+    h2 { font-size: 20px; color: var(--gold); margin-top: 28px; margin-bottom: 10px; }
+    p, li { color: #d6d3cb; font-size: 15px; margin-bottom: 10px; }
+    ul { padding-left: 22px; }
+    a { color: var(--gold); }
+    .box { background: var(--card); border: 1px solid var(--border); border-left: 4px solid var(--gold); border-radius: 10px; padding: 18px; margin: 20px 0; }
+    .nav { margin-bottom: 24px; font-size: 14px; }
+  </style>
+</head>
+<body>
+  <div class="nav"><a href="index.html">← Back to Onnkiosk Home</a> · <a href="terms.html">Terms of Service</a></div>
+  <h1>Privacy Policy — Onnkiosk</h1>
+  <p style="color: var(--muted);">Effective Date: November 16, 2026 · Package: <code>com.nernal.frame.oauth</code> · Contact: <a href="mailto:derek.pangallo@gmail.com">derek.pangallo@gmail.com</a></p>
+
+  <div class="box">
+    <strong>Google API Services User Data Policy &amp; Limited Use:</strong><br>
+    Onnkiosk's use and transfer to any other app of information received from Google APIs will adhere to the
+    <a href="https://developers.google.com/terms/api-services-user-data-policy" target="_blank" rel="noopener">Google API Services User Data Policy</a>,
+    including the Limited Use requirements.
+  </div>
+
+  <h2>1. Direct Device-to-Google Architecture</h2>
+  <p>Onnkiosk runs exclusively on your Android tablet and communicates directly with Google APIs over HTTPS. We operate zero intermediate backend servers, zero analytics, and zero third-party data brokers.</p>
+
+  <h2>2. Google Scopes &amp; Data Usage</h2>
+  <ul>
+    <li><strong><code>openid</code>, <code>email</code>, <code>profile</code>:</strong> Displays your connected account name and email in Settings.</li>
+    <li><strong><code>https://www.googleapis.com/auth/calendar</code>:</strong> Displays your household schedules across Itinerary, 3-Day, Week, and Month views and event details.</li>
+    <li><strong><code>https://www.googleapis.com/auth/tasks</code>:</strong> Displays your Google Task lists in Tasks and Shopping tabs and syncs checkbox completions or newly added reminders.</li>
+    <li><strong><code>https://www.googleapis.com/auth/photospicker.mediaitems.readonly</code>:</strong> Displays user-selected photos from the Google Photos Picker when photo slideshow mode is enabled.</li>
+  </ul>
+
+  <h2>3. Local Storage, Retention &amp; Deletion</h2>
+  <p>OAuth tokens and offline dashboard caches are stored only in private local device storage (Android <code>SharedPreferences</code> and app cache). Tapping <strong>Sign Out</strong> inside the app immediately deletes all local tokens and cached data. You may also revoke access anytime in <a href="https://myaccount.google.com/permissions" target="_blank" rel="noopener">Google Account Permissions</a>.</p>
+</body>
+</html>
