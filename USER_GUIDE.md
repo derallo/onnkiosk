@@ -19,7 +19,18 @@
 
 ## 2. Setup & Installation
 
-### A. Tablet Hardware Preparation (Developer Mode & Stay Awake)
+### A. One-Command Automated Tablet Installer (`install-tablet.sh`)
+For fastest setup on any Android tablet, connect via USB-C and run:
+```bash
+./install-tablet.sh
+```
+The helper script automatically detects the device, downloads the latest release APK, configures kiosk hardware flags (`stay_on_while_plugged_in`), grants self-update permissions, installs the app, and launches Onnkiosk.
+
+Run `./install-tablet.sh --help` to view all flags (`--latest`, `--local`, `--build`, `--setup-only`, `--device`).
+
+---
+
+### B. Manual Tablet Hardware Preparation (Developer Mode & Stay Awake)
 1. Open Android **Settings** → **About tablet**.
 2. Scroll to **Build number** and tap it **7 times** until you see *"You are now a developer!"*.
 3. Go back to **Settings** → **System** → **Developer options**.

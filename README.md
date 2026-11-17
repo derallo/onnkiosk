@@ -27,26 +27,42 @@ Optimized for **landscape 1280×800** displays (such as the Walmart Onn 8" Table
 
 ## Setup & Installation
 
-### 1. Enable Developer Options & USB Debugging on the Tablet
-1. Open Android **Settings** → **About tablet**.
-2. Tap **Build number** 7 times until you see the message *"You are now a developer!"*.
-3. Go back to **Settings** → **System** → **Developer options**.
-4. Enable:
-   - **USB debugging**: Toggle ON (connect via USB and tap "Always allow from this computer" when prompted).
-   - **Stay awake**: Toggle ON (screen will stay awake while plugged into power).
+### Option 1: One-Command Automated Tablet Installer (Recommended)
+Connect your tablet via USB and run our setup helper:
+```bash
+./install-tablet.sh
+```
+This automatically:
+- Detects the connected tablet via ADB.
+- Fetches and installs the latest release APK from GitHub.
+- Configures **Stay Awake while plugged in** (`stay_on_while_plugged_in = 7`).
+- Ensures auto-rotate / landscape orientation.
+- Grants **Install Unknown Apps** (`REQUEST_INSTALL_PACKAGES`) so in-app self-updates work seamlessly.
+- Launches **Onnkiosk** immediately.
 
-### 2. Install the APK
-Download the latest `app-release.apk` from the [Releases](https://github.com/derallo/onnkiosk/releases) section.
+To see all available installer options and first-time tablet preparation steps:
+```bash
+./install-tablet.sh --help
+```
 
-You can install it directly via `adb`:
+---
+
+### Option 2: Manual Direct Download on the Tablet (No Computer)
+1. Open Chrome on the tablet and visit: [github.com/derallo/onnkiosk/releases/latest](https://github.com/derallo/onnkiosk/releases/latest).
+2. Tap `app-release.apk` to download and install.
+3. When prompted, allow Chrome to install unknown apps.
+4. In tablet Settings → Apps → Special app access → Install unknown apps → Allow for **Onnkiosk** (enables seamless in-app self-updates).
+5. In Developer Options, enable **Stay awake** so the display remains on while docked on power.
+
+---
+
+### Option 3: Manual USB / ADB Install
+1. Enable **Developer options** on the tablet (Settings → About tablet → tap **Build number** 7 times).
+2. Enable **USB debugging** and connect via USB.
+3. Run:
 ```bash
 adb install -r app-release.apk
 ```
-Or download the APK directly on the tablet's browser and tap to install (grant "Install unknown apps" when prompted by your browser/file manager).
-
-### 3. Grant Permissions
-- **Install unknown apps**: In tablet Settings → Apps → Special app access → Install unknown apps → Allow for **Onnkiosk** (enables seamless in-app self-updates).
-- **Notifications**: Allow notifications for calendar/event alerts if prompted.
 
 ### 4. Connect Your Google Account
 1. Launch **Onnkiosk**.
