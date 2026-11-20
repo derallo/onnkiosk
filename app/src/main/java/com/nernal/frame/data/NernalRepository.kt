@@ -936,6 +936,47 @@ class NernalRepository(private val cacheDir: File? = null) {
         decoded
     }
 
+    // -------------------------------------------------------------------------
+    // User Feedback Relay
+    // -------------------------------------------------------------------------
+
+    suspend fun submitFeedback(
+        email: String?,
+        displayName: String?,
+        appId: String,
+        appVersion: String,
+        device: String,
+        comment: String,
+        diagnostics: String?,
+    ): Result<String> = withContext(Dispatchers.IO) {
+        runCatching {
+            val payload = JSONObject().apply {
+                put("comment", comment.trim())
+                if (!email.isNullOrBlank()) put("email", email.trim())
+                if (!displayName.isNullOrBlank()) put("displayName", displayName.trim())
+                put("appId", appId)
+                put("appVersion", appVersion)
+                put("device", device)
+                if (!diagnostics.isNullOrBlank()) put("diagnostics", diagnostics)
+            }
+            val req = Request.Builder()
+                .url(FEEDBACK_RELAY_URL)
+                .post(payload.toString().toRequestBody(JSON_MEDIA_TYPE))
+                .build()
+            httpClient.newCall(req).execute().use { resp ->
+                val body = resp.body?.string().orEmpty()
+                if (!resp.isSuccessful) {
+                    val errMsg = runCatching {
+                        JSONObject(body).optString("error").takeIf { it.isNotBlank() }
+                    }.getOrNull() ?: "Server returned HTTP ${resp.code}"
+                    error(errMsg)
+                }
+                val id = runCatching { JSONObject(body).optString("id") }.getOrNull().orEmpty()
+                id.ifBlank { "sent" }
+            }
+        }
+    }
+
     fun getCachedBitmap(photo: AlbumPhoto): Bitmap? =
         bitmapCache.get(photo.displayUrl())?.takeIf { !it.isRecycled }
 
@@ -1013,8 +1054,21 @@ class NernalRepository(private val cacheDir: File? = null) {
     internal companion object {
         private val JSON_MEDIA_TYPE = "application/json; charset=utf-8".toMediaType()
         const val PICKER_ALBUM_MARKER = "picker"
+        const val FEEDBACK_RELAY_URL = "https://onnkiosk-feedback-relay-1041770212384.us-west1.run.app/api/feedback"
         private const val DISK_CACHE_MAX_BYTES = 180L * 1024 * 1024
         private const val DISK_CACHE_TARGET_BYTES = 150L * 1024 * 1024
+
+        private val BEARER_TOKEN_REGEX = Regex("""(?i)\bBearer\s+[A-Za-z0-9._~+/=-]{8,}""")
+        private val JSON_SECRET_REGEX = Regex("""(?i)("(?:access_token|refresh_token|id_token|client_secret|oauthClientSecret)"\s*:\s*")([^"]+)(")""")
+        private val QUERY_SECRET_REGEX = Regex("""(?i)((?:access_token|refresh_token|id_token|client_secret|code)=)([^&\s"']+)""")
+        private val GOOGLE_SECRET_PREFIX_REGEX = Regex("""(?:GOCSPX-[A-Za-z0-9_-]+|ya29\.[A-Za-z0-9._-]+|1//[A-Za-z0-9._-]+)""")
+
+        fun scrubSensitiveTokens(raw: String): String =
+            raw
+                .replace(BEARER_TOKEN_REGEX, "Bearer [REDACTED]")
+                .replace(JSON_SECRET_REGEX, "$1[REDACTED]$3")
+                .replace(QUERY_SECRET_REGEX, "$1[REDACTED]")
+                .replace(GOOGLE_SECRET_PREFIX_REGEX, "[REDACTED]")
 
         val PHOTO_LINK_REGEX = Regex("""https://(?:photos\.app\.goo\.gl/[A-Za-z0-9_-]+|photos\.google\.com/(?:share|album)/[^\s"<>]+)""")
 

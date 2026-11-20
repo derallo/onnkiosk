@@ -91,8 +91,13 @@ Onnkiosk supports connecting your Google account directly using your own OAuth C
 
 ---
 
-## 5. In-App Updates & Maintenance
+## 5. Private Feedback, In-App Updates & Maintenance
 
+- **Send Private Feedback (`?` → Send Feedback)**:
+  - Tap the **?** button in the top bar (or open the User Guide) and tap **Send Feedback**.
+  - Enter a bug report or feature request, choose whether to attach scrubbed diagnostic logs (enabled by default), and tap **Send Feedback**.
+  - Submissions include your signed-in Google email (or `"Not signed in"`) and go through a write-only Cloud Run relay (`onnkiosk-feedback-relay`) into the **private** `derallo/onnkiosk-feedback` GitHub repository (`feedback/YYYY-MM-DD/*.md` and Issues). No GitHub token is embedded in the APK, and other users can never read your email or logs.
+  - **Checking Submissions (Maintainers)**: Run `gh issue list --repo derallo/onnkiosk-feedback` or `gh api /repos/derallo/onnkiosk-feedback/contents/feedback`.
 - **Automatic GitHub Release Checks**: Onnkiosk checks the GitHub repository (`derallo/onnkiosk`) for new releases periodically in the background.
 - **Update Modal**: When a newer release is published, an update chip appears. Tap **Update** to review changelog release notes, download the APK, and trigger the Android package installer directly.
 - **Log Inspection**: Tap **Settings** → **Diagnostics** to view token refresh status, memory usage, and background sync health.

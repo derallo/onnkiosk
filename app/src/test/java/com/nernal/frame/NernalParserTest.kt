@@ -480,4 +480,21 @@ class NernalParserTest {
         assertFalse(com.nernal.frame.data.AppUpdateManager.isNewerVersion("v0.2.0-oauth", "0.2.0-oauth"))
         assertFalse(com.nernal.frame.data.AppUpdateManager.isNewerVersion("", "0.2.0-oauth"))
     }
+
+    @Test
+    fun scrubSensitiveTokensRedactsBearerAndSecrets() {
+        val raw = """
+            Authorization: Bearer ya29.a0AfB_test_token_123456
+            {"access_token":"secret_access_val","refresh_token":"1//0gTestRefreshToken","client_secret":"GOCSPX-TestSecretValue"}
+            callback?code=4/0TestCode123&access_token=tokABC
+        """.trimIndent()
+        val scrubbed = NernalRepository.scrubSensitiveTokens(raw)
+        assertFalse(scrubbed.contains("ya29.a0AfB_test_token_123456"))
+        assertFalse(scrubbed.contains("secret_access_val"))
+        assertFalse(scrubbed.contains("1//0gTestRefreshToken"))
+        assertFalse(scrubbed.contains("GOCSPX-TestSecretValue"))
+        assertFalse(scrubbed.contains("4/0TestCode123"))
+        assertFalse(scrubbed.contains("tokABC"))
+        assertTrue(scrubbed.contains("[REDACTED]"))
+    }
 }

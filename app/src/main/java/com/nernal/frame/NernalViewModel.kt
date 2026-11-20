@@ -129,6 +129,10 @@ data class NernalUiState(
     val updateError: String? = null,
     val showUpdateDialog: Boolean = false,
     val updateNotice: String? = null,
+    val showFeedbackDialog: Boolean = false,
+    val isSubmittingFeedback: Boolean = false,
+    val feedbackNotice: String? = null,
+    val feedbackError: String? = null,
 ) {
     val currentPhoto: AlbumPhoto?
         get() {
@@ -1162,6 +1166,89 @@ class NernalViewModel(application: Application) : AndroidViewModel(application) 
 
     fun setShowHelpDialog(show: Boolean) {
         _uiState.update { it.copy(showHelpDialog = show) }
+    }
+
+    fun setShowFeedbackDialog(show: Boolean) {
+        _uiState.update {
+            it.copy(
+                showFeedbackDialog = show,
+                feedbackNotice = null,
+                feedbackError = null,
+            )
+        }
+    }
+
+    fun submitUserFeedback(comment: String, includeLogs: Boolean) {
+        val trimmed = comment.trim()
+        if (trimmed.isEmpty()) {
+            _uiState.update { it.copy(feedbackError = "Please enter a comment before sending.") }
+            return
+        }
+        val stateSnap = _uiState.value
+        _uiState.update { it.copy(isSubmittingFeedback = true, feedbackNotice = null, feedbackError = null) }
+
+        viewModelScope.launch {
+            val diagnostics = if (includeLogs) {
+                withContext(Dispatchers.IO) { buildDiagnosticLogBundle(stateSnap) }
+            } else {
+                null
+            }
+            val deviceInfo = "${android.os.Build.MANUFACTURER} ${android.os.Build.MODEL} " +
+                "(Android ${android.os.Build.VERSION.RELEASE} / SDK ${android.os.Build.VERSION.SDK_INT})"
+            repo.submitFeedback(
+                email = stateSnap.accountProfile?.email,
+                displayName = stateSnap.accountProfile?.displayName,
+                appId = BuildConfig.APPLICATION_ID,
+                appVersion = BuildConfig.VERSION_NAME,
+                device = deviceInfo,
+                comment = trimmed,
+                diagnostics = diagnostics,
+            ).onSuccess { id ->
+                _uiState.update {
+                    it.copy(
+                        isSubmittingFeedback = false,
+                        feedbackNotice = "Thank you! Your feedback was sent (#$id).",
+                        feedbackError = null,
+                    )
+                }
+            }.onFailure { err ->
+                _uiState.update {
+                    it.copy(
+                        isSubmittingFeedback = false,
+                        feedbackError = err.message ?: "Failed to send feedback",
+                    )
+                }
+            }
+        }
+    }
+
+    private fun buildDiagnosticLogBundle(state: NernalUiState): String {
+        val sb = StringBuilder()
+        sb.appendLine("=== App State ===")
+        sb.appendLine("authState=${state.authState}")
+        sb.appendLine("location=${state.userLocation.name} (${state.userLocation.timezone})")
+        sb.appendLine("calendars=${state.selectedCalendarIds.size}/${state.availableCalendars.size}")
+        sb.appendLine("taskLists=${state.selectedTaskListIds.size}/${state.availableTaskLists.size}")
+        sb.appendLine("reminders=${state.reminders.size}, pendingOps=${state.pendingSyncCount}")
+        sb.appendLine("photos=${state.libraryTotalCount} (active=${state.activePhotos.size}, favs=${state.starredIds.size})")
+        sb.appendLine("calendarPrimary=${state.calendarPrimaryMode}, viewMode=${state.calendarViewMode}")
+        state.authError?.let { sb.appendLine("authError=$it") }
+        state.weatherError?.let { sb.appendLine("weatherError=$it") }
+        state.calendarError?.let { sb.appendLine("calendarError=$it") }
+        state.tasksError?.let { sb.appendLine("tasksError=$it") }
+        state.photosApiError?.let { sb.appendLine("photosApiError=$it") }
+        state.albumError?.let { sb.appendLine("albumError=$it") }
+        sb.appendLine()
+        sb.appendLine("=== Recent Process Logcat ===")
+        val pid = android.os.Process.myPid()
+        val logText = runCatching {
+            val proc = ProcessBuilder("logcat", "-d", "-v", "time", "--pid=$pid", "-t", "180")
+                .redirectErrorStream(true)
+                .start()
+            proc.inputStream.bufferedReader().use { it.readText() }
+        }.getOrElse { err -> "Unable to read logcat: ${err.message}" }
+        sb.append(logText.takeLast(32_000))
+        return NernalRepository.scrubSensitiveTokens(sb.toString())
     }
 
     fun setPhotoAlbumFilter(album: String?) {

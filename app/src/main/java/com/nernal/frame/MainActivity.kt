@@ -57,6 +57,7 @@ import com.nernal.frame.ui.CalendarPrimaryWing
 import com.nernal.frame.ui.DimOverlay
 import com.nernal.frame.ui.DopplerRadarModal
 import com.nernal.frame.ui.EventDetailsDialog
+import com.nernal.frame.ui.FeedbackDialog
 import com.nernal.frame.ui.FullscreenSlideshowOverlay
 import com.nernal.frame.ui.GoogleAccountDialog
 import com.nernal.frame.ui.InAppOAuthWebViewDialog
@@ -432,7 +433,19 @@ private fun NernalFrameRoot(
 
         if (state.showHelpDialog) {
             UserGuideDialog(
+                onOpenFeedback = {
+                    viewModel.setShowHelpDialog(false)
+                    viewModel.setShowFeedbackDialog(true)
+                },
                 onDismiss = { viewModel.setShowHelpDialog(false) },
+            )
+        }
+
+        if (state.showFeedbackDialog) {
+            FeedbackDialog(
+                state = state,
+                onSubmit = viewModel::submitUserFeedback,
+                onDismiss = { viewModel.setShowFeedbackDialog(false) },
             )
         }
 

@@ -32,12 +32,14 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.rounded.Send
 import androidx.compose.material.icons.rounded.AccountCircle
 import androidx.compose.material.icons.rounded.Bedtime
 import androidx.compose.material.icons.rounded.BrokenImage
 import androidx.compose.material.icons.rounded.ChevronLeft
 import androidx.compose.material.icons.rounded.ChevronRight
 import androidx.compose.material.icons.rounded.DeleteOutline
+import androidx.compose.material.icons.rounded.Email
 import androidx.compose.material.icons.rounded.Event
 import androidx.compose.material.icons.rounded.Fullscreen
 import androidx.compose.material.icons.rounded.FullscreenExit
@@ -55,10 +57,15 @@ import androidx.compose.material.icons.rounded.ViewAgenda
 import androidx.compose.material.icons.rounded.Wifi
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
+import androidx.compose.material3.Checkbox
+import androidx.compose.material3.CheckboxDefaults
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
+import androidx.compose.material3.OutlinedButton
+import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.OutlinedTextFieldDefaults
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Switch
 import androidx.compose.material3.SwitchDefaults
@@ -1894,6 +1901,7 @@ fun SettingsDialog(
 
 @Composable
 fun UserGuideDialog(
+    onOpenFeedback: () -> Unit = {},
     onDismiss: () -> Unit,
 ) {
     Dialog(
@@ -1915,21 +1923,44 @@ fun UserGuideDialog(
                 verticalArrangement = Arrangement.spacedBy(12.dp),
             ) {
                 Row(
+                    modifier = Modifier.fillMaxWidth(),
                     verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(10.dp),
+                    horizontalArrangement = Arrangement.SpaceBetween,
                 ) {
-                    Icon(
-                        imageVector = Icons.Rounded.HelpOutline,
-                        contentDescription = null,
-                        tint = NernalColors.Gold,
-                        modifier = Modifier.size(26.dp),
-                    )
-                    Text(
-                        text = "Onnkiosk User Guide",
-                        fontSize = 20.sp,
-                        fontWeight = FontWeight.Bold,
-                        color = NernalColors.Ink,
-                    )
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(10.dp),
+                    ) {
+                        Icon(
+                            imageVector = Icons.Rounded.HelpOutline,
+                            contentDescription = null,
+                            tint = NernalColors.Gold,
+                            modifier = Modifier.size(26.dp),
+                        )
+                        Text(
+                            text = "Onnkiosk User Guide",
+                            fontSize = 20.sp,
+                            fontWeight = FontWeight.Bold,
+                            color = NernalColors.Ink,
+                        )
+                    }
+
+                    Button(
+                        onClick = onOpenFeedback,
+                        colors = ButtonDefaults.buttonColors(containerColor = NernalColors.CardInner),
+                        border = BorderStroke(1.dp, NernalColors.Gold),
+                        shape = RoundedCornerShape(12.dp),
+                        modifier = Modifier.height(44.dp),
+                    ) {
+                        Icon(
+                            imageVector = Icons.Rounded.Email,
+                            contentDescription = null,
+                            tint = NernalColors.Gold,
+                            modifier = Modifier.size(18.dp),
+                        )
+                        Spacer(Modifier.width(8.dp))
+                        Text("Send Feedback", color = NernalColors.Gold, fontWeight = FontWeight.Bold, fontSize = 14.sp)
+                    }
                 }
 
                 HorizontalDivider(color = NernalColors.BorderSubtle)
@@ -1996,8 +2027,26 @@ fun UserGuideDialog(
 
                 Row(
                     modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.End,
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically,
                 ) {
+                    Button(
+                        onClick = onOpenFeedback,
+                        colors = ButtonDefaults.buttonColors(containerColor = NernalColors.CardInner),
+                        border = BorderStroke(1.dp, NernalColors.Gold),
+                        shape = RoundedCornerShape(12.dp),
+                        modifier = Modifier.height(48.dp),
+                    ) {
+                        Icon(
+                            imageVector = Icons.Rounded.Email,
+                            contentDescription = null,
+                            tint = NernalColors.Gold,
+                            modifier = Modifier.size(18.dp),
+                        )
+                        Spacer(Modifier.width(8.dp))
+                        Text("Send Feedback", color = NernalColors.Gold, fontWeight = FontWeight.Bold, fontSize = 14.sp)
+                    }
+
                     Button(
                         onClick = onDismiss,
                         colors = ButtonDefaults.buttonColors(containerColor = NernalColors.Gold),
@@ -2005,6 +2054,206 @@ fun UserGuideDialog(
                         modifier = Modifier.height(48.dp),
                     ) {
                         Text("Got It", color = NernalColors.Bg, fontWeight = FontWeight.Bold, fontSize = 15.sp)
+                    }
+                }
+            }
+        }
+    }
+}
+
+@Composable
+fun FeedbackDialog(
+    state: NernalUiState,
+    onSubmit: (comment: String, includeLogs: Boolean) -> Unit,
+    onDismiss: () -> Unit,
+) {
+    var comment by remember { mutableStateOf("") }
+    var includeLogs by remember { mutableStateOf(true) }
+    val senderLabel = state.accountProfile?.email?.takeIf { it.isNotBlank() }
+        ?: "Anonymous (not signed in)"
+
+    Dialog(
+        onDismissRequest = { if (!state.isSubmittingFeedback) onDismiss() },
+        properties = DialogProperties(usePlatformDefaultWidth = false),
+    ) {
+        Surface(
+            color = NernalColors.Card,
+            shape = RoundedCornerShape(20.dp),
+            border = BorderStroke(1.dp, NernalColors.Border),
+            modifier = Modifier
+                .fillMaxWidth(0.72f),
+        ) {
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .verticalScroll(rememberScrollState())
+                    .padding(22.dp),
+                verticalArrangement = Arrangement.spacedBy(14.dp),
+            ) {
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(10.dp),
+                ) {
+                    Icon(
+                        imageVector = Icons.Rounded.Email,
+                        contentDescription = null,
+                        tint = NernalColors.Gold,
+                        modifier = Modifier.size(24.dp),
+                    )
+                    Text(
+                        text = "Send Private Feedback",
+                        fontSize = 20.sp,
+                        fontWeight = FontWeight.Bold,
+                        color = NernalColors.Ink,
+                    )
+                }
+
+                Surface(
+                    color = NernalColors.CardInner,
+                    shape = RoundedCornerShape(10.dp),
+                    border = BorderStroke(1.dp, NernalColors.BorderSubtle),
+                    modifier = Modifier.fillMaxWidth(),
+                ) {
+                    Column(
+                        modifier = Modifier.padding(12.dp),
+                        verticalArrangement = Arrangement.spacedBy(3.dp),
+                    ) {
+                        Text(
+                            text = "From: $senderLabel",
+                            color = NernalColors.Gold,
+                            fontSize = 13.sp,
+                            fontWeight = FontWeight.SemiBold,
+                        )
+                        Text(
+                            text = "Reports are sent privately to the developer to fix bugs and prioritize requested features — never posted publicly.",
+                            color = NernalColors.InkMuted,
+                            fontSize = 12.sp,
+                        )
+                    }
+                }
+
+                OutlinedTextField(
+                    value = comment,
+                    onValueChange = { comment = it },
+                    label = { Text("Bug report or feature idea", color = NernalColors.InkMuted) },
+                    placeholder = {
+                        Text(
+                            text = "Tell us what happened or what feature would help...",
+                            color = NernalColors.InkMuted.copy(alpha = 0.7f),
+                        )
+                    },
+                    minLines = 4,
+                    maxLines = 7,
+                    enabled = !state.isSubmittingFeedback,
+                    colors = OutlinedTextFieldDefaults.colors(
+                        focusedContainerColor = NernalColors.Bg,
+                        unfocusedContainerColor = NernalColors.Bg,
+                        focusedBorderColor = NernalColors.Gold,
+                        unfocusedBorderColor = NernalColors.Border,
+                        focusedTextColor = NernalColors.Ink,
+                        unfocusedTextColor = NernalColors.Ink,
+                        cursorColor = NernalColors.Gold,
+                    ),
+                    modifier = Modifier.fillMaxWidth(),
+                )
+
+                Surface(
+                    color = NernalColors.CardInner,
+                    shape = RoundedCornerShape(10.dp),
+                    border = BorderStroke(1.dp, NernalColors.BorderSubtle),
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .clip(RoundedCornerShape(10.dp))
+                        .clickable(enabled = !state.isSubmittingFeedback) { includeLogs = !includeLogs },
+                ) {
+                    Row(
+                        modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        Checkbox(
+                            checked = includeLogs,
+                            onCheckedChange = { if (!state.isSubmittingFeedback) includeLogs = it },
+                            colors = CheckboxDefaults.colors(
+                                checkedColor = NernalColors.Gold,
+                                checkmarkColor = NernalColors.Bg,
+                                uncheckedColor = NernalColors.InkMuted,
+                            ),
+                        )
+                        Text(
+                            text = "Include app diagnostic logs (recommended for bug reports)",
+                            color = NernalColors.Ink,
+                            fontSize = 13.sp,
+                        )
+                    }
+                }
+
+                if (!state.feedbackError.isNullOrBlank()) {
+                    Text(
+                        text = state.feedbackError,
+                        color = Color(0xFFEF4444),
+                        fontSize = 13.sp,
+                        fontWeight = FontWeight.Medium,
+                    )
+                }
+
+                if (!state.feedbackNotice.isNullOrBlank()) {
+                    Text(
+                        text = state.feedbackNotice,
+                        color = NernalColors.Emerald,
+                        fontSize = 13.sp,
+                        fontWeight = FontWeight.SemiBold,
+                    )
+                }
+
+                HorizontalDivider(color = NernalColors.BorderSubtle)
+
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.End,
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    OutlinedButton(
+                        onClick = onDismiss,
+                        enabled = !state.isSubmittingFeedback,
+                        border = BorderStroke(1.dp, NernalColors.Border),
+                        shape = RoundedCornerShape(12.dp),
+                        modifier = Modifier.height(48.dp),
+                    ) {
+                        Text(
+                            text = if (state.feedbackNotice != null) "Close" else "Cancel",
+                            color = NernalColors.InkMuted,
+                            fontSize = 14.sp,
+                            fontWeight = FontWeight.SemiBold,
+                        )
+                    }
+
+                    Spacer(Modifier.width(10.dp))
+
+                    Button(
+                        onClick = { onSubmit(comment, includeLogs) },
+                        enabled = comment.isNotBlank() && !state.isSubmittingFeedback && state.feedbackNotice == null,
+                        colors = ButtonDefaults.buttonColors(containerColor = NernalColors.Gold),
+                        shape = RoundedCornerShape(12.dp),
+                        modifier = Modifier.height(48.dp),
+                    ) {
+                        if (state.isSubmittingFeedback) {
+                            CircularProgressIndicator(
+                                modifier = Modifier.size(18.dp),
+                                color = NernalColors.Bg,
+                                strokeWidth = 2.dp,
+                            )
+                            Spacer(Modifier.width(8.dp))
+                            Text("Sending...", color = NernalColors.Bg, fontWeight = FontWeight.Bold, fontSize = 14.sp)
+                        } else {
+                            Icon(
+                                imageVector = Icons.AutoMirrored.Rounded.Send,
+                                contentDescription = null,
+                                tint = NernalColors.Bg,
+                                modifier = Modifier.size(18.dp),
+                            )
+                            Spacer(Modifier.width(8.dp))
+                            Text("Send Feedback", color = NernalColors.Bg, fontWeight = FontWeight.Bold, fontSize = 14.sp)
+                        }
                     }
                 }
             }
