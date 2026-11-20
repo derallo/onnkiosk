@@ -522,7 +522,7 @@ private fun EmptyAlbumStateContent(
                     }
 
                     Text(
-                        text = "Don't want photos? Tap 'Hide Photos' in the top bar above, or tap the button below to expand your Calendar, Tasks, and Shopping to full screen.",
+                        text = "Don't want photos? Tap 'Hide Photos' in the top bar above, or tap the button below to expand your Calendar and Tasks to full screen.",
                         color = NernalColors.InkMuted,
                         fontSize = 12.sp,
                         lineHeight = 17.sp,
@@ -1365,7 +1365,7 @@ fun SettingsDialog(
                             fontWeight = FontWeight.SemiBold,
                         )
                         Text(
-                            text = "Removes photo slideshow to make Calendar view primary, with a dedicated tab for tasks and shopping",
+                            text = "Removes photo slideshow to make Calendar view primary, with a dedicated tab for tasks",
                             color = NernalColors.InkMuted,
                             fontSize = 12.sp,
                         )
@@ -1946,7 +1946,7 @@ fun UserGuideDialog(
                     UserGuideSection(
                         title = "1. Overview & Navigation",
                         content = "Onnkiosk is an ambient touchscreen household dashboard signed directly into your Google account on-device. Household members at the counter never need to log in.\n" +
-                            "• Left Wing: Live clock, precision local weather, NWS severe weather alerts, Doppler radar, and Home Hub (calendar, tasks & shopping).\n" +
+                            "• Left Wing: Live clock, precision local weather, NWS severe weather alerts, Doppler radar, and Home Hub (calendar & tasks).\n" +
                             "• Right Wing: High-resolution photo slideshow, favorite memories, and frame controls."
                     )
 
@@ -1957,18 +1957,19 @@ fun UserGuideDialog(
                     )
 
                     UserGuideSection(
-                        title = "3. Home Hub: Calendar, Tasks & Shopping",
-                        content = "• All Tab: Chronological list of upcoming events, active tasks, shopping items, and completed items.\n" +
-                            "• Events Tab: Google Calendar events grouped by Today, Tomorrow, Future, and Past. Tap any event for details.\n" +
-                            "• Tasks & Shopping Tabs: Focused views for your Google Task lists and Shopping lists. Mark any task list as Shopping in Google Account settings.\n" +
-                            "• Filter Dropdown & Undo: Filter individual task/shopping lists per tab, and use the 5-second Undo bar if you delete an item by mistake."
+                        title = "3. Home Hub: Calendar & Tasks",
+                        content = "• All Tab: Chronological list of upcoming events and active tasks.\n" +
+                            "• Events Tab: Tap 'Events' to switch between Itinerary, 3-Day, Week, and Month views. Tap any event for details.\n" +
+                            "• Tasks Tab: Focused view for your Google Task lists with checkboxes to mark items done.\n" +
+                            "• Add (+) Button: Tap the '+' button in the top right by Tasks to quickly add a Task or Event.\n" +
+                            "• Filter Dropdown: Filter individual task lists per tab, and use the 5-second Undo bar if you delete an item by mistake."
                     )
 
                     UserGuideSection(
-                        title = "4. Quick-Add & Keyboard Controls",
-                        content = "• Type in the bottom text field of Home Hub and tap Add (or press Enter). Items added on Events, Tasks, or Shopping go directly to that category.\n" +
-                            "• On the All tab, tap the category pill beside Add to switch between Task, Shopping, and Event.\n" +
-                            "• Tap 'X' or the keyboard-hide icon inside the input box to clear or dismiss the keyboard."
+                        title = "4. Quick-Add (+) Button",
+                        content = "• Tap the '+' button in the top right to open the Add Entry dialog.\n" +
+                            "• Select Task or Event, type the title or description, and tap Add.\n" +
+                            "• Events sync directly to your primary Google Calendar and Tasks sync directly to your active Google Task list."
                     )
 
                     UserGuideSection(

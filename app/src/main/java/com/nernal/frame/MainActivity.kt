@@ -281,7 +281,6 @@ private fun NernalFrameRoot(
                 onSyncNow = viewModel::syncGoogleNow,
                 onToggleCalendar = viewModel::toggleCalendarSelection,
                 onToggleTaskList = viewModel::toggleTaskListSelection,
-                onToggleTaskListShopping = viewModel::toggleTaskListAsShopping,
                 onCreateTaskList = viewModel::createGoogleTaskList,
                 onLaunchPicker = viewModel::launchGooglePhotosPicker,
                 onAddCustomSharedUrl = viewModel::addCustomSharedAlbumUrl,

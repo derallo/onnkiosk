@@ -152,13 +152,6 @@ class FramePrefs(context: Context) {
         prefs.edit { putStringSet(KEY_SELECTED_TASK_LISTS, ids.toSet()) }
     }
 
-    fun loadShoppingTaskListIds(): Set<String> =
-        prefs.getStringSet(KEY_SHOPPING_TASK_LISTS, emptySet())?.toSet() ?: emptySet()
-
-    fun saveShoppingTaskListIds(ids: Set<String>) {
-        prefs.edit { putStringSet(KEY_SHOPPING_TASK_LISTS, ids.toSet()) }
-    }
-
     fun loadSelectedPhotoAlbumIds(): Set<String> =
         prefs.getStringSet(KEY_SELECTED_PHOTO_ALBUMS, emptySet())?.toSet() ?: emptySet()
 

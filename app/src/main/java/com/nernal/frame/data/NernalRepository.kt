@@ -479,7 +479,6 @@ class NernalRepository(private val cacheDir: File? = null) {
     suspend fun fetchTasksForLists(
         accessToken: String,
         taskListIds: Set<String>,
-        shoppingListIds: Set<String>,
     ): List<ReminderItem> = withContext(Dispatchers.IO) {
         if (taskListIds.isEmpty()) return@withContext emptyList()
         val startMs = System.currentTimeMillis()
@@ -488,7 +487,7 @@ class NernalRepository(private val cacheDir: File? = null) {
                 async {
                     runCatching {
                         val encId = URLEncoder.encode(listId, "UTF-8")
-                        val cat = if (listId in shoppingListIds) ReminderCategory.SHOPPING else ReminderCategory.TASK
+                        val cat = ReminderCategory.TASK
                         val out = mutableListOf<ReminderItem>()
                         var pageToken: String? = null
                         var pages = 0
@@ -1138,30 +1137,30 @@ class NernalRepository(private val cacheDir: File? = null) {
                             ?.takeIf { it.isAfter(startDate) }
                             ?: startDate.plusDays(1)
 
-                        var day = startDate
-                        var dayIdx = 0
-                        while (day.isBefore(endExclusive) && dayIdx < 31) {
-                            val dayKey = day.toString()
-                            val dayId = if (dayIdx == 0) "cal:$calendarId:$eventId" else "cal:$calendarId:$eventId:$dayKey"
-                            val dayMs = day.atStartOfDay(zoneId).toInstant().toEpochMilli()
-                            add(
-                                ReminderItem(
-                                    id = dayId,
-                                    text = summary,
-                                    category = ReminderCategory.EVENT,
-                                    dateKey = dayKey,
-                                    time = null,
-                                    completed = false,
-                                    createdAtMs = dayMs,
-                                    sourceId = calendarId,
-                                    remoteId = eventId,
-                                    notes = desc,
-                                    color = eventColorHex,
-                                )
-                            )
-                            day = day.plusDays(1)
-                            dayIdx++
+                        val dayKey = startDate.toString()
+                        val dayId = "cal:$calendarId:$eventId"
+                        val dayMs = startDate.atStartOfDay(zoneId).toInstant().toEpochMilli()
+                        val fullNotes = if (endExclusive.isAfter(startDate.plusDays(1))) {
+                            val rangeNote = "Through ${endExclusive.minusDays(1)}"
+                            if (desc != null) "$desc ($rangeNote)" else rangeNote
+                        } else {
+                            desc
                         }
+                        add(
+                            ReminderItem(
+                                id = dayId,
+                                text = summary,
+                                category = ReminderCategory.EVENT,
+                                dateKey = dayKey,
+                                time = null,
+                                completed = false,
+                                createdAtMs = dayMs,
+                                sourceId = calendarId,
+                                remoteId = eventId,
+                                notes = fullNotes,
+                                color = eventColorHex,
+                            )
+                        )
                     }
                 }
             }

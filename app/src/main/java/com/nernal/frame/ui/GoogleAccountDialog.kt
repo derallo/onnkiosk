@@ -45,7 +45,6 @@ import androidx.compose.material.icons.rounded.OpenInBrowser
 import androidx.compose.material.icons.rounded.PhotoLibrary
 import androidx.compose.material.icons.rounded.Refresh
 import androidx.compose.material.icons.rounded.Search
-import androidx.compose.material.icons.rounded.ShoppingCart
 import androidx.compose.material.icons.rounded.Wifi
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
@@ -99,8 +98,7 @@ fun GoogleAccountDialog(
     onSyncNow: () -> Unit,
     onToggleCalendar: (String) -> Unit,
     onToggleTaskList: (String) -> Unit,
-    onToggleTaskListShopping: (String) -> Unit,
-    onCreateTaskList: (title: String, asShopping: Boolean) -> Unit,
+    onCreateTaskList: (title: String) -> Unit,
     onLaunchPicker: () -> Unit,
     onAddCustomSharedUrl: (String) -> Unit,
     onRemoveCustomSharedUrl: (String) -> Unit,
@@ -313,7 +311,6 @@ fun GoogleAccountDialog(
                             AccountTab.TASKS -> TaskListsTabContent(
                                 state = state,
                                 onToggleTaskList = onToggleTaskList,
-                                onToggleShopping = onToggleTaskListShopping,
                                 onCreateTaskList = onCreateTaskList,
                             )
                             AccountTab.PHOTOS -> PhotoAlbumsTabContent(
@@ -412,7 +409,7 @@ private fun SignedOutPanel(
                     fontWeight = FontWeight.Bold,
                 )
                 Text(
-                    text = "Sign in to select which Google Calendars, Google Task Lists (Tasks & Shopping), and Google Photo Albums appear on this display.",
+                    text = "Sign in to select which Google Calendars, Google Task Lists, and Google Photo Albums appear on this display.",
                     color = NernalColors.InkMuted,
                     fontSize = 14.sp,
                 )
@@ -686,8 +683,7 @@ private fun CalendarsTabContent(
 private fun TaskListsTabContent(
     state: NernalUiState,
     onToggleTaskList: (String) -> Unit,
-    onToggleShopping: (String) -> Unit,
-    onCreateTaskList: (String, Boolean) -> Unit,
+    onCreateTaskList: (String) -> Unit,
 ) {
     var newListTitle by remember { mutableStateOf("") }
 
@@ -700,7 +696,7 @@ private fun TaskListsTabContent(
         verticalArrangement = Arrangement.spacedBy(10.dp),
     ) {
         Text(
-            text = "Select Google Task Lists to display, and mark a list as Shopping to route its items to the Shopping tab.",
+            text = "Select Google Task Lists to display on the Tasks tab.",
             color = NernalColors.InkMuted,
             fontSize = 14.sp,
         )
@@ -718,7 +714,6 @@ private fun TaskListsTabContent(
         } else {
             for (list in state.availableTaskLists) {
                 val checked = list.id in state.selectedTaskListIds
-                val isShopping = list.id in state.shoppingTaskListIds
                 Surface(
                     color = NernalColors.CardInner,
                     shape = RoundedCornerShape(14.dp),
@@ -750,37 +745,6 @@ private fun TaskListsTabContent(
                             fontWeight = FontWeight.SemiBold,
                             modifier = Modifier.weight(1f),
                         )
-                        Surface(
-                            color = if (isShopping) NernalColors.Emerald.copy(alpha = 0.16f) else NernalColors.CardSubtle,
-                            shape = RoundedCornerShape(10.dp),
-                            border = BorderStroke(
-                                1.dp,
-                                if (isShopping) NernalColors.Emerald else NernalColors.Border,
-                            ),
-                            modifier = Modifier
-                                .height(48.dp)
-                                .clip(RoundedCornerShape(10.dp))
-                                .clickable { onToggleShopping(list.id) },
-                        ) {
-                            Row(
-                                modifier = Modifier.padding(horizontal = 12.dp),
-                                verticalAlignment = Alignment.CenterVertically,
-                                horizontalArrangement = Arrangement.spacedBy(6.dp),
-                            ) {
-                                Icon(
-                                    imageVector = if (isShopping) Icons.Rounded.ShoppingCart else Icons.Rounded.Checklist,
-                                    contentDescription = null,
-                                    tint = if (isShopping) NernalColors.Emerald else NernalColors.Amber,
-                                    modifier = Modifier.size(16.dp),
-                                )
-                                Text(
-                                    text = if (isShopping) "Shopping" else "Tasks",
-                                    color = if (isShopping) NernalColors.Emerald else NernalColors.Amber,
-                                    fontSize = 13.sp,
-                                    fontWeight = FontWeight.Bold,
-                                )
-                            }
-                        }
                     }
                 }
             }
@@ -801,14 +765,14 @@ private fun TaskListsTabContent(
             OutlinedTextField(
                 value = newListTitle,
                 onValueChange = { newListTitle = it },
-                placeholder = { Text("e.g., Shopping List") },
+                placeholder = { Text("e.g., Household Tasks") },
                 singleLine = true,
                 colors = oauthTextFieldColors(),
                 modifier = Modifier.weight(1f),
             )
             Button(
                 onClick = {
-                    onCreateTaskList(newListTitle, false)
+                    onCreateTaskList(newListTitle)
                     newListTitle = ""
                 },
                 enabled = newListTitle.isNotBlank(),
@@ -816,19 +780,7 @@ private fun TaskListsTabContent(
                 modifier = Modifier.height(50.dp),
             ) {
                 Icon(Icons.Rounded.Add, null, tint = NernalColors.Bg, modifier = Modifier.size(18.dp))
-                Text("Tasks", color = NernalColors.Bg, fontWeight = FontWeight.Bold)
-            }
-            Button(
-                onClick = {
-                    onCreateTaskList(newListTitle, true)
-                    newListTitle = ""
-                },
-                enabled = newListTitle.isNotBlank(),
-                colors = ButtonDefaults.buttonColors(containerColor = NernalColors.Emerald),
-                modifier = Modifier.height(50.dp),
-            ) {
-                Icon(Icons.Rounded.Add, null, tint = NernalColors.Bg, modifier = Modifier.size(18.dp))
-                Text("Shopping", color = NernalColors.Bg, fontWeight = FontWeight.Bold)
+                Text("Add List", color = NernalColors.Bg, fontWeight = FontWeight.Bold)
             }
         }
     }

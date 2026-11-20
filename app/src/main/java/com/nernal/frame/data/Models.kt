@@ -80,15 +80,13 @@ data class AlbumPhoto(
 
 enum class ReminderCategory(val label: String, val pluralLabel: String) {
     EVENT("Event", "Events"),
-    TASK("Task", "Tasks"),
-    SHOPPING("Shopping", "Shopping");
+    TASK("Task", "Tasks");
 }
 
 enum class HubFilter(val label: String) {
     ALL("All"),
     EVENTS("Events"),
-    TASKS("Tasks"),
-    SHOPPING("Shopping"),
+    TASKS("Tasks");
 }
 
 enum class CalendarViewMode(val label: String) {

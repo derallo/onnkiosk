@@ -32,6 +32,7 @@ import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.AcUnit
+import androidx.compose.material.icons.rounded.Add
 import androidx.compose.material.icons.rounded.Bedtime
 import androidx.compose.material.icons.rounded.CalendarMonth
 import androidx.compose.material.icons.rounded.CalendarToday
@@ -39,6 +40,7 @@ import androidx.compose.material.icons.rounded.CalendarViewWeek
 import androidx.compose.material.icons.rounded.Check
 import androidx.compose.material.icons.rounded.CheckBox
 import androidx.compose.material.icons.rounded.CheckBoxOutlineBlank
+import androidx.compose.material.icons.rounded.Checklist
 import androidx.compose.material.icons.rounded.ChevronLeft
 import androidx.compose.material.icons.rounded.ChevronRight
 import androidx.compose.material.icons.rounded.Close
@@ -73,9 +75,13 @@ import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
+import androidx.compose.material3.OutlinedButton
+import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.OutlinedTextFieldDefaults
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -83,6 +89,8 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.graphics.vector.ImageVector
@@ -116,6 +124,7 @@ import java.time.LocalDate
 import java.time.YearMonth
 import java.time.format.DateTimeFormatter
 import java.util.Locale
+import kotlinx.coroutines.delay
 
 @Composable
 fun InformationalWing(
@@ -158,7 +167,6 @@ fun InformationalWing(
             todayKey = state.todayKey,
             availableTaskLists = state.availableTaskLists,
             selectedTaskListIds = state.selectedTaskListIds,
-            shoppingTaskListIds = state.shoppingTaskListIds,
             activeTaskListFilters = state.activeTaskListFilters,
             availableCalendars = state.availableCalendars,
             onToggleActiveTaskListFilter = onToggleActiveTaskListFilter,
@@ -503,6 +511,19 @@ private fun UnifiedHeaderCard(
                                 overflow = TextOverflow.Ellipsis,
                             )
 
+                            val descSnippet = nextEvent.notes?.trim()?.replace('\n', ' ')?.takeIf { it.isNotBlank() }
+                            if (descSnippet != null) {
+                                Text(
+                                    text = "— $descSnippet",
+                                    color = NernalColors.InkMuted,
+                                    fontSize = 13.sp,
+                                    fontWeight = FontWeight.Normal,
+                                    maxLines = 1,
+                                    overflow = TextOverflow.Ellipsis,
+                                    modifier = Modifier.weight(1f, fill = false),
+                                )
+                            }
+
                             Text(
                                 text = "· $dateLabel",
                                 color = NernalColors.WarmAmber,
@@ -635,7 +656,6 @@ private fun OmniHubCard(
     todayKey: String,
     availableTaskLists: List<GoogleTaskListInfo> = emptyList(),
     selectedTaskListIds: Set<String> = emptySet(),
-    shoppingTaskListIds: Set<String> = emptySet(),
     activeTaskListFilters: Set<String> = emptySet(),
     availableCalendars: List<GoogleCalendarInfo> = emptyList(),
     onToggleActiveTaskListFilter: (String) -> Unit = {},
@@ -648,28 +668,20 @@ private fun OmniHubCard(
     showHeader: Boolean = true,
     modifier: Modifier = Modifier,
 ) {
-    var draftText by remember { mutableStateOf("") }
-    var draftCategory by remember { mutableStateOf(ReminderCategory.TASK) }
     var filterMenuExpanded by remember { mutableStateOf(false) }
-    val isKeyboardOpen = WindowInsets.isImeVisible
-    val focusManager = LocalFocusManager.current
-    val keyboardController = LocalSoftwareKeyboardController.current
+    var eventsMenuExpanded by remember { mutableStateOf(false) }
+    var showAddDialog by remember { mutableStateOf(false) }
 
     val eventsListState = rememberLazyListState()
     val allListState = rememberLazyListState()
     val tasksListState = rememberLazyListState()
-    val shoppingListState = rememberLazyListState()
 
     val relevantTaskLists = remember(availableTaskLists, selectedTaskListIds) {
         val filtered = availableTaskLists.filter { it.id in selectedTaskListIds }
         if (filtered.isNotEmpty()) filtered else availableTaskLists
     }
-    val tabFilterableLists = remember(relevantTaskLists, shoppingTaskListIds, activeFilter) {
-        when (activeFilter) {
-            HubFilter.TASKS -> relevantTaskLists.filter { it.id !in shoppingTaskListIds }
-            HubFilter.SHOPPING -> relevantTaskLists.filter { it.id in shoppingTaskListIds }
-            else -> emptyList()
-        }
+    val tabFilterableLists = remember(relevantTaskLists, activeFilter) {
+        if (activeFilter == HubFilter.TASKS) relevantTaskLists else emptyList()
     }
 
     val tomorrowKey = remember(todayKey) {
@@ -692,10 +704,7 @@ private fun OmniHubCard(
     val allActive = remember(reminders) { reminders.filter { !it.completed } }
     val allCompleted = remember(reminders) { reminders.filter { it.completed } }
     val allTodayItems = remember(allActive, todayKey) {
-        allActive.filter {
-            it.dateKey == todayKey ||
-                (it.category != ReminderCategory.EVENT && (it.dateKey == null || it.dateKey < todayKey))
-        }.sortedWith(
+        allActive.filter { it.dateKey == todayKey }.sortedWith(
             compareBy<ReminderItem> { if (it.category == ReminderCategory.EVENT) 0 else 1 }
                 .thenBy { if (it.category == ReminderCategory.EVENT) it.startTimeMinutes ?: Int.MAX_VALUE else 0 }
                 .thenByDescending { it.dateKey ?: "" }
@@ -715,32 +724,6 @@ private fun OmniHubCard(
     }
     val activeTasks = remember(filteredTasks) { filteredTasks.filter { !it.completed } }
     val completedTasks = remember(filteredTasks) { filteredTasks.filter { it.completed } }
-
-    val filteredShopping = remember(reminders, activeTaskListFilters) {
-        reminders.filter {
-            it.category == ReminderCategory.SHOPPING &&
-                (activeTaskListFilters.isEmpty() || it.sourceId == null || it.sourceId in activeTaskListFilters)
-        }
-    }
-    val activeShopping = remember(filteredShopping) { filteredShopping.filter { !it.completed } }
-    val completedShopping = remember(filteredShopping) { filteredShopping.filter { it.completed } }
-
-    val effectiveDraftCategory = when (activeFilter) {
-        HubFilter.EVENTS -> ReminderCategory.EVENT
-        HubFilter.TASKS -> ReminderCategory.TASK
-        HubFilter.SHOPPING -> ReminderCategory.SHOPPING
-        HubFilter.ALL -> draftCategory
-    }
-
-    fun submitDraft() {
-        val cleaned = draftText.trim()
-        if (cleaned.isNotEmpty()) {
-            onAddReminder(cleaned, effectiveDraftCategory)
-            draftText = ""
-            keyboardController?.hide()
-            focusManager.clearFocus()
-        }
-    }
 
     NernalCard(
         modifier = modifier,
@@ -773,34 +756,101 @@ private fun OmniHubCard(
                 ) {
                     for (tab in HubFilter.entries) {
                         val selected = tab == activeFilter
-                        Surface(
-                            color = if (selected) NernalColors.CardSubtle else NernalColors.CardInner,
-                            shape = RoundedCornerShape(10.dp),
-                            border = BorderStroke(
-                                width = 1.dp,
-                                color = if (selected) NernalColors.Gold.copy(alpha = 0.7f) else NernalColors.BorderSubtle,
-                            ),
-                            modifier = Modifier
-                                .height(48.dp)
-                                .clickable {
-                                    onFilterChange(tab)
-                                    draftCategory = when (tab) {
-                                        HubFilter.EVENTS -> ReminderCategory.EVENT
-                                        HubFilter.SHOPPING -> ReminderCategory.SHOPPING
-                                        else -> ReminderCategory.TASK
+                        if (tab == HubFilter.EVENTS) {
+                            Box {
+                                Surface(
+                                    color = if (selected) NernalColors.CardSubtle else NernalColors.CardInner,
+                                    shape = RoundedCornerShape(10.dp),
+                                    border = BorderStroke(
+                                        width = 1.dp,
+                                        color = if (selected) NernalColors.Gold.copy(alpha = 0.7f) else NernalColors.BorderSubtle,
+                                    ),
+                                    modifier = Modifier
+                                        .height(48.dp)
+                                        .clickable {
+                                            if (!selected) {
+                                                onFilterChange(HubFilter.EVENTS)
+                                            }
+                                            eventsMenuExpanded = !eventsMenuExpanded
+                                        },
+                                ) {
+                                    Row(
+                                        verticalAlignment = Alignment.CenterVertically,
+                                        horizontalArrangement = Arrangement.spacedBy(4.dp),
+                                        modifier = Modifier.padding(horizontal = 9.dp),
+                                    ) {
+                                        Text(
+                                            text = if (selected) "Events (${calendarViewMode.label}) ▾" else "Events ▾",
+                                            color = if (selected) NernalColors.Ink else NernalColors.InkMuted,
+                                            fontSize = 14.sp,
+                                            fontWeight = if (selected) FontWeight.Bold else FontWeight.Medium,
+                                        )
                                     }
-                                },
-                        ) {
-                            Box(
-                                contentAlignment = Alignment.Center,
-                                modifier = Modifier.padding(horizontal = 9.dp),
+                                }
+
+                                DropdownMenu(
+                                    expanded = eventsMenuExpanded,
+                                    onDismissRequest = { eventsMenuExpanded = false },
+                                    modifier = Modifier
+                                        .background(NernalColors.Card)
+                                        .border(1.dp, NernalColors.Border, RoundedCornerShape(12.dp)),
+                                ) {
+                                    for (mode in CalendarViewMode.entries) {
+                                        val isCurrentMode = mode == calendarViewMode && selected
+                                        val icon = when (mode) {
+                                            CalendarViewMode.ITINERARY -> Icons.Rounded.ViewAgenda
+                                            CalendarViewMode.THREE_DAY -> Icons.Rounded.ViewColumn
+                                            CalendarViewMode.WEEK -> Icons.Rounded.CalendarViewWeek
+                                            CalendarViewMode.MONTH -> Icons.Rounded.CalendarMonth
+                                        }
+                                        DropdownMenuItem(
+                                            leadingIcon = {
+                                                Icon(
+                                                    imageVector = icon,
+                                                    contentDescription = null,
+                                                    tint = if (isCurrentMode) NernalColors.Gold else NernalColors.InkMuted,
+                                                    modifier = Modifier.size(18.dp),
+                                                )
+                                            },
+                                            text = {
+                                                Text(
+                                                    text = mode.label,
+                                                    color = if (isCurrentMode) NernalColors.Gold else NernalColors.Ink,
+                                                    fontWeight = if (isCurrentMode) FontWeight.Bold else FontWeight.Normal,
+                                                )
+                                            },
+                                            onClick = {
+                                                onCalendarViewModeChange(mode)
+                                                onFilterChange(HubFilter.EVENTS)
+                                                eventsMenuExpanded = false
+                                            },
+                                        )
+                                    }
+                                }
+                            }
+                        } else {
+                            Surface(
+                                color = if (selected) NernalColors.CardSubtle else NernalColors.CardInner,
+                                shape = RoundedCornerShape(10.dp),
+                                border = BorderStroke(
+                                    width = 1.dp,
+                                    color = if (selected) NernalColors.Gold.copy(alpha = 0.7f) else NernalColors.BorderSubtle,
+                                ),
+                                modifier = Modifier
+                                    .height(48.dp)
+                                    .clickable { onFilterChange(tab) },
                             ) {
-                                Text(
-                                    text = tab.label,
-                                    color = if (selected) NernalColors.Ink else NernalColors.InkMuted,
-                                    fontSize = 14.sp,
-                                    fontWeight = if (selected) FontWeight.Bold else FontWeight.Medium,
-                                )
+                                Box(
+                                    contentAlignment = Alignment.Center,
+                                    modifier = Modifier.padding(horizontal = 9.dp),
+                                ) {
+                                    Text(
+                                        text = tab.label,
+                                        color = if (selected) NernalColors.Ink else NernalColors.InkMuted,
+                                        fontSize = 14.sp,
+                                        fontWeight = if (selected) FontWeight.Bold else FontWeight.Medium,
+                                    )
+                                }
                             }
                         }
                     }
@@ -881,9 +931,39 @@ private fun OmniHubCard(
                             }
                         }
                     }
+
+                    // Top Right '+' Button to add task or event
+                    Surface(
+                        color = NernalColors.CardInner,
+                        shape = RoundedCornerShape(10.dp),
+                        border = BorderStroke(1.dp, NernalColors.Gold.copy(alpha = 0.8f)),
+                        modifier = Modifier
+                            .height(48.dp)
+                            .clickable { showAddDialog = true },
+                    ) {
+                        Box(
+                            contentAlignment = Alignment.Center,
+                            modifier = Modifier.padding(horizontal = 12.dp),
+                        ) {
+                            Icon(
+                                imageVector = Icons.Rounded.Add,
+                                contentDescription = "Add Task or Event",
+                                tint = NernalColors.Gold,
+                                modifier = Modifier.size(22.dp),
+                            )
+                        }
+                    }
                 }
             }
         }
+
+            if (showAddDialog) {
+                AddReminderDialog(
+                    initialCategory = if (activeFilter == HubFilter.EVENTS) ReminderCategory.EVENT else ReminderCategory.TASK,
+                    onDismiss = { showAddDialog = false },
+                    onAdd = { t, c -> onAddReminder(t, c) },
+                )
+            }
 
             if (showHeader) {
                 HorizontalDivider(color = NernalColors.BorderSubtle)
@@ -897,51 +977,8 @@ private fun OmniHubCard(
             ) {
                 when (activeFilter) {
                     HubFilter.EVENTS -> {
-                        Column(modifier = Modifier.fillMaxSize()) {
-                            if (showHeader) {
-                                Row(
-                                    modifier = Modifier
-                                        .fillMaxWidth()
-                                        .padding(bottom = 6.dp),
-                                    verticalAlignment = Alignment.CenterVertically,
-                                    horizontalArrangement = Arrangement.spacedBy(6.dp),
-                                ) {
-                                    for (mode in CalendarViewMode.entries) {
-                                        val isSel = mode == calendarViewMode
-                                        Surface(
-                                            color = if (isSel) NernalColors.CardSubtle else Color.Black,
-                                            shape = RoundedCornerShape(8.dp),
-                                            border = BorderStroke(1.dp, if (isSel) NernalColors.Gold else NernalColors.BorderSubtle),
-                                            modifier = Modifier
-                                                .height(36.dp)
-                                                .clickable { onCalendarViewModeChange(mode) },
-                                        ) {
-                                            Row(
-                                                modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp),
-                                                verticalAlignment = Alignment.CenterVertically,
-                                                horizontalArrangement = Arrangement.spacedBy(4.dp),
-                                            ) {
-                                                val icon = when (mode) {
-                                                    CalendarViewMode.ITINERARY -> Icons.Rounded.ViewAgenda
-                                                    CalendarViewMode.THREE_DAY -> Icons.Rounded.ViewColumn
-                                                    CalendarViewMode.WEEK -> Icons.Rounded.CalendarViewWeek
-                                                    CalendarViewMode.MONTH -> Icons.Rounded.CalendarMonth
-                                                }
-                                                Icon(icon, null, tint = if (isSel) NernalColors.Gold else NernalColors.InkMuted, modifier = Modifier.size(14.dp))
-                                                Text(
-                                                    text = mode.label,
-                                                    color = if (isSel) NernalColors.Ink else NernalColors.InkMuted,
-                                                    fontSize = 12.sp,
-                                                    fontWeight = if (isSel) FontWeight.Bold else FontWeight.Medium,
-                                                )
-                                            }
-                                        }
-                                    }
-                                }
-                            }
-
-                            Box(modifier = Modifier.weight(1f).fillMaxWidth()) {
-                                when (calendarViewMode) {
+                        Box(modifier = Modifier.fillMaxSize()) {
+                            when (calendarViewMode) {
                                     CalendarViewMode.MONTH -> {
                                         MonthCalendarView(
                                             reminders = reminders,
@@ -1045,7 +1082,6 @@ private fun OmniHubCard(
                                 }
                             }
                         }
-                    }
 
                     HubFilter.ALL -> {
                         if (reminders.isEmpty()) {
@@ -1165,174 +1201,6 @@ private fun OmniHubCard(
                             }
                         }
                     }
-
-                    HubFilter.SHOPPING -> {
-                        if (filteredShopping.isEmpty()) {
-                            EmptyHubNotice("No shopping items yet", "Add groceries or household items below, or mark a Task List as Shopping in Google Account")
-                        } else {
-                            LazyColumn(
-                                state = shoppingListState,
-                                modifier = Modifier
-                                    .fillMaxSize()
-                                    .lazyListVerticalScrollbar(shoppingListState),
-                                contentPadding = PaddingValues(end = 8.dp),
-                                verticalArrangement = Arrangement.spacedBy(3.dp),
-                            ) {
-                                if (activeShopping.isNotEmpty()) {
-                                    item(key = "header_shop_active") { SectionDivider("SHOPPING LIST", activeShopping.size) }
-                                    items(activeShopping, key = { it.id }) { item ->
-                                        ReminderRow(
-                                            item = item,
-                                            todayKey = todayKey,
-                                            onToggle = { onToggleReminder(item.id) },
-                                            onDelete = { onDeleteReminder(item.id) },
-                                            onEventClick = { },
-                                        )
-                                    }
-                                }
-                                if (completedShopping.isNotEmpty()) {
-                                    item(key = "header_shop_completed") { SectionDivider("IN CART / COMPLETED", completedShopping.size) }
-                                    items(completedShopping, key = { it.id }) { item ->
-                                        ReminderRow(
-                                            item = item,
-                                            todayKey = todayKey,
-                                            onToggle = { onToggleReminder(item.id) },
-                                            onDelete = { onDeleteReminder(item.id) },
-                                            onEventClick = { },
-                                        )
-                                    }
-                                }
-                            }
-                        }
-                    }
-                }
-            }
-
-            // Quick Add Input Row (BasicTextField: No text clipping, with keyboard dismiss action)
-            Row(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(bottom = 36.dp),
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(6.dp),
-            ) {
-                Surface(
-                    color = NernalColors.Bg,
-                    shape = RoundedCornerShape(12.dp),
-                    border = BorderStroke(1.dp, NernalColors.Border),
-                    modifier = Modifier
-                        .weight(1f)
-                        .height(54.dp),
-                ) {
-                    Row(
-                        modifier = Modifier
-                            .fillMaxSize()
-                            .padding(start = 14.dp, end = 4.dp),
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.spacedBy(6.dp),
-                    ) {
-                        Box(
-                            modifier = Modifier
-                                .weight(1f)
-                                .padding(end = 4.dp),
-                            contentAlignment = Alignment.CenterStart,
-                        ) {
-                            if (draftText.isEmpty()) {
-                                Text(
-                                    text = "Add ${effectiveDraftCategory.label.lowercase(Locale.US)}...",
-                                    color = NernalColors.InkMuted,
-                                    fontSize = 15.sp,
-                                )
-                            }
-                            BasicTextField(
-                                value = draftText,
-                                onValueChange = { draftText = it },
-                                singleLine = true,
-                                textStyle = TextStyle(
-                                    color = NernalColors.Ink,
-                                    fontSize = 15.sp,
-                                    fontWeight = FontWeight.Medium,
-                                ),
-                                cursorBrush = SolidColor(NernalColors.Gold),
-                                keyboardOptions = KeyboardOptions(imeAction = ImeAction.Done),
-                                keyboardActions = KeyboardActions(
-                                    onDone = {
-                                        submitDraft()
-                                        keyboardController?.hide()
-                                        focusManager.clearFocus()
-                                    }
-                                ),
-                                modifier = Modifier.fillMaxWidth(),
-                            )
-                        }
-
-                        if (draftText.isNotEmpty() || isKeyboardOpen) {
-                            Surface(
-                                color = Color.Transparent,
-                                shape = CircleShape,
-                                modifier = Modifier
-                                    .size(48.dp)
-                                    .clickable {
-                                        draftText = ""
-                                        keyboardController?.hide()
-                                        focusManager.clearFocus()
-                                    },
-                            ) {
-                                Box(contentAlignment = Alignment.Center) {
-                                    Icon(
-                                        imageVector = if (draftText.isNotEmpty()) Icons.Rounded.Close else Icons.Rounded.KeyboardHide,
-                                        contentDescription = "Close keyboard",
-                                        tint = if (draftText.isNotEmpty()) NernalColors.Gold else NernalColors.InkMuted,
-                                        modifier = Modifier.size(20.dp),
-                                    )
-                                }
-                            }
-                        }
-                    }
-                }
-
-                if (activeFilter == HubFilter.ALL) {
-                    Surface(
-                        color = NernalColors.CardSubtle,
-                        shape = RoundedCornerShape(12.dp),
-                        border = BorderStroke(1.dp, categoryColor(draftCategory).copy(alpha = 0.6f)),
-                        modifier = Modifier
-                            .height(54.dp)
-                            .clickable {
-                                draftCategory = when (draftCategory) {
-                                    ReminderCategory.TASK -> ReminderCategory.SHOPPING
-                                    ReminderCategory.SHOPPING -> ReminderCategory.EVENT
-                                    ReminderCategory.EVENT -> ReminderCategory.TASK
-                                }
-                            },
-                    ) {
-                        Box(
-                            contentAlignment = Alignment.Center,
-                            modifier = Modifier.padding(horizontal = 12.dp),
-                        ) {
-                            Text(
-                                text = draftCategory.label,
-                                color = categoryColor(draftCategory),
-                                fontSize = 14.sp,
-                                fontWeight = FontWeight.Bold,
-                            )
-                        }
-                    }
-                }
-
-                Button(
-                    onClick = { submitDraft() },
-                    enabled = draftText.isNotBlank(),
-                    shape = RoundedCornerShape(12.dp),
-                    colors = ButtonDefaults.buttonColors(
-                        containerColor = NernalColors.Gold,
-                        contentColor = NernalColors.Bg,
-                        disabledContainerColor = NernalColors.CardSubtle,
-                        disabledContentColor = NernalColors.InkMuted,
-                    ),
-                    modifier = Modifier.height(54.dp),
-                ) {
-                    Text("Add", fontSize = 15.sp, fontWeight = FontWeight.Bold)
                 }
             }
         }
@@ -1476,10 +1344,10 @@ private fun ReminderRow(
                 }
             }
 
-            // Title & notes snippet
+            // Title
             Column(
                 modifier = Modifier.weight(1f),
-                verticalArrangement = Arrangement.spacedBy(1.dp),
+                verticalArrangement = Arrangement.Center,
             ) {
                 Text(
                     text = item.text,
@@ -1490,15 +1358,6 @@ private fun ReminderRow(
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis,
                 )
-                if (!item.notes.isNullOrBlank() && !item.completed) {
-                    Text(
-                        text = item.notes,
-                        color = NernalColors.InkMuted,
-                        fontSize = 14.sp,
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis,
-                    )
-                }
             }
 
             // Time / Date Chip
@@ -1743,6 +1602,145 @@ fun EventDetailsDialog(
     )
 }
 
+@Composable
+fun AddReminderDialog(
+    initialCategory: ReminderCategory = ReminderCategory.TASK,
+    onDismiss: () -> Unit,
+    onAdd: (text: String, category: ReminderCategory) -> Unit,
+) {
+    var text by remember { mutableStateOf("") }
+    var category by remember { mutableStateOf(initialCategory) }
+    val focusRequester = remember { FocusRequester() }
+
+    LaunchedEffect(Unit) {
+        delay(150)
+        focusRequester.requestFocus()
+    }
+
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        containerColor = NernalColors.Card,
+        titleContentColor = NernalColors.Ink,
+        textContentColor = NernalColors.Ink,
+        title = {
+            Text(
+                text = "New Entry",
+                fontSize = 20.sp,
+                fontWeight = FontWeight.Bold,
+                color = NernalColors.Gold,
+            )
+        },
+        text = {
+            Column(
+                modifier = Modifier.fillMaxWidth(),
+                verticalArrangement = Arrangement.spacedBy(16.dp),
+            ) {
+                // Category Pills
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                ) {
+                    val categories = listOf(ReminderCategory.TASK, ReminderCategory.EVENT)
+                    for (cat in categories) {
+                        val isSel = cat == category
+                        val color = if (cat == ReminderCategory.EVENT) NernalColors.Accent else NernalColors.Amber
+                        Surface(
+                            color = if (isSel) color.copy(alpha = 0.22f) else NernalColors.CardInner,
+                            shape = RoundedCornerShape(10.dp),
+                            border = BorderStroke(1.dp, if (isSel) color else NernalColors.BorderSubtle),
+                            modifier = Modifier
+                                .weight(1f)
+                                .height(48.dp)
+                                .clickable { category = cat },
+                        ) {
+                            Row(
+                                modifier = Modifier.fillMaxSize(),
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.Center,
+                            ) {
+                                Icon(
+                                    imageVector = if (cat == ReminderCategory.EVENT) Icons.Rounded.Event else Icons.Rounded.Checklist,
+                                    contentDescription = null,
+                                    tint = if (isSel) color else NernalColors.InkMuted,
+                                    modifier = Modifier.size(18.dp),
+                                )
+                                Spacer(modifier = Modifier.width(6.dp))
+                                Text(
+                                    text = cat.label,
+                                    color = if (isSel) NernalColors.Ink else NernalColors.InkMuted,
+                                    fontWeight = if (isSel) FontWeight.Bold else FontWeight.Medium,
+                                    fontSize = 15.sp,
+                                )
+                            }
+                        }
+                    }
+                }
+
+                // Text field
+                OutlinedTextField(
+                    value = text,
+                    onValueChange = { text = it },
+                    placeholder = {
+                        Text(
+                            text = if (category == ReminderCategory.EVENT) "e.g., Dentist appointment at 2 PM" else "e.g., Feed Riker",
+                            color = NernalColors.InkMuted,
+                        )
+                    },
+                    singleLine = true,
+                    colors = OutlinedTextFieldDefaults.colors(
+                        focusedBorderColor = NernalColors.Gold,
+                        unfocusedBorderColor = NernalColors.Border,
+                        focusedTextColor = NernalColors.Ink,
+                        unfocusedTextColor = NernalColors.Ink,
+                        cursorColor = NernalColors.Gold,
+                    ),
+                    keyboardOptions = KeyboardOptions(imeAction = ImeAction.Done),
+                    keyboardActions = KeyboardActions(onDone = {
+                        val trimmed = text.trim()
+                        if (trimmed.isNotEmpty()) {
+                            onAdd(trimmed, category)
+                            onDismiss()
+                        }
+                    }),
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .focusRequester(focusRequester),
+                )
+            }
+        },
+        confirmButton = {
+            Button(
+                onClick = {
+                    val trimmed = text.trim()
+                    if (trimmed.isNotEmpty()) {
+                        onAdd(trimmed, category)
+                        onDismiss()
+                    }
+                },
+                enabled = text.isNotBlank(),
+                colors = ButtonDefaults.buttonColors(
+                    containerColor = NernalColors.Gold,
+                    contentColor = NernalColors.Bg,
+                ),
+                shape = RoundedCornerShape(10.dp),
+                modifier = Modifier.height(48.dp),
+            ) {
+                Text("Add ${category.label}", fontWeight = FontWeight.Bold, fontSize = 15.sp)
+            }
+        },
+        dismissButton = {
+            OutlinedButton(
+                onClick = onDismiss,
+                shape = RoundedCornerShape(10.dp),
+                border = BorderStroke(1.dp, NernalColors.Border),
+                modifier = Modifier.height(48.dp),
+            ) {
+                Text("Cancel", color = NernalColors.InkMuted, fontSize = 15.sp)
+            }
+        },
+    )
+}
+
 private fun formatSectionDate(dateKey: String): String = runCatching {
     LocalDate.parse(dateKey).format(DateTimeFormatter.ofPattern("EEEE, MMM d", Locale.US))
 }.getOrDefault(dateKey)
@@ -1758,7 +1756,6 @@ private fun formatShortDate(dateKey: String?, todayKey: String): String {
 private fun categoryColor(category: ReminderCategory): Color = when (category) {
     ReminderCategory.EVENT -> NernalColors.Accent
     ReminderCategory.TASK -> NernalColors.Amber
-    ReminderCategory.SHOPPING -> NernalColors.Emerald
 }
 
 private fun weatherIconAndTint(code: Int, isDay: Boolean): Pair<ImageVector, Color> =
@@ -2896,6 +2893,9 @@ fun CalendarPrimaryWing(
     onToggleCalendarPrimary: ((Boolean) -> Unit)? = null,
     modifier: Modifier = Modifier,
 ) {
+    var calMenuExpanded by remember { mutableStateOf(false) }
+    var showAddDialog by remember { mutableStateOf(false) }
+
     Column(
         modifier = modifier
             .fillMaxSize()
@@ -3180,7 +3180,7 @@ fun CalendarPrimaryWing(
                     .padding(14.dp),
                 verticalArrangement = Arrangement.spacedBy(10.dp),
             ) {
-                // Header with Primary Navigation Tabs (Calendar / Tasks / Shopping / All)
+                // Header with Primary Navigation Tabs (Calendar / Tasks / All)
                 Row(
                     modifier = Modifier.fillMaxWidth(),
                     verticalAlignment = Alignment.CenterVertically,
@@ -3193,69 +3193,134 @@ fun CalendarPrimaryWing(
                     ) {
                         for (tab in HubFilter.entries) {
                             val selected = tab == state.hubFilter
-                            Surface(
-                                onClick = { onFilterChange(tab) },
-                                color = if (selected) NernalColors.CardSubtle else Color.Black,
-                                shape = RoundedCornerShape(10.dp),
-                                border = BorderStroke(
-                                    width = 1.dp,
-                                    color = if (selected) NernalColors.Gold.copy(alpha = 0.8f) else NernalColors.BorderSubtle,
-                                ),
-                                modifier = Modifier.height(44.dp),
-                            ) {
-                                Box(
-                                    contentAlignment = Alignment.Center,
-                                    modifier = Modifier.padding(horizontal = 14.dp),
-                                ) {
-                                    Text(
-                                        text = if (tab == HubFilter.EVENTS) "Calendar" else tab.label,
-                                        color = if (selected) NernalColors.Ink else NernalColors.InkMuted,
-                                        fontSize = 15.sp,
-                                        fontWeight = if (selected) FontWeight.Bold else FontWeight.Medium,
-                                    )
-                                }
-                            }
-                        }
-                    }
-
-                    // Right: View Switcher (Month / Week / Itinerary) when in Calendar mode
-                    if (state.hubFilter == HubFilter.EVENTS) {
-                        Row(
-                            verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.spacedBy(6.dp),
-                        ) {
-                            for (mode in CalendarViewMode.entries) {
-                                val isSel = mode == state.calendarViewMode
-                                Surface(
-                                    onClick = { onCalendarViewModeChange(mode) },
-                                    color = if (isSel) NernalColors.CardSubtle else Color.Black,
-                                    shape = RoundedCornerShape(8.dp),
-                                    border = BorderStroke(1.dp, if (isSel) NernalColors.Gold else NernalColors.BorderSubtle),
-                                    modifier = Modifier.height(40.dp),
-                                ) {
-                                    Row(
-                                        modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp),
-                                        verticalAlignment = Alignment.CenterVertically,
-                                        horizontalArrangement = Arrangement.spacedBy(6.dp),
+                            if (tab == HubFilter.EVENTS) {
+                                Box {
+                                    Surface(
+                                        onClick = {
+                                            if (!selected) {
+                                                onFilterChange(HubFilter.EVENTS)
+                                            }
+                                            calMenuExpanded = !calMenuExpanded
+                                        },
+                                        color = if (selected) NernalColors.CardSubtle else Color.Black,
+                                        shape = RoundedCornerShape(10.dp),
+                                        border = BorderStroke(
+                                            width = 1.dp,
+                                            color = if (selected) NernalColors.Gold.copy(alpha = 0.8f) else NernalColors.BorderSubtle,
+                                        ),
+                                        modifier = Modifier.height(44.dp),
                                     ) {
-                                        val icon = when (mode) {
-                                            CalendarViewMode.ITINERARY -> Icons.Rounded.ViewAgenda
-                                            CalendarViewMode.THREE_DAY -> Icons.Rounded.ViewColumn
-                                            CalendarViewMode.WEEK -> Icons.Rounded.CalendarViewWeek
-                                            CalendarViewMode.MONTH -> Icons.Rounded.CalendarMonth
+                                        Row(
+                                            verticalAlignment = Alignment.CenterVertically,
+                                            horizontalArrangement = Arrangement.spacedBy(4.dp),
+                                            modifier = Modifier.padding(horizontal = 14.dp),
+                                        ) {
+                                            Text(
+                                                text = if (selected) "Calendar (${state.calendarViewMode.label}) ▾" else "Calendar ▾",
+                                                color = if (selected) NernalColors.Ink else NernalColors.InkMuted,
+                                                fontSize = 15.sp,
+                                                fontWeight = if (selected) FontWeight.Bold else FontWeight.Medium,
+                                            )
                                         }
-                                        Icon(icon, null, tint = if (isSel) NernalColors.Gold else NernalColors.InkMuted, modifier = Modifier.size(16.dp))
+                                    }
+
+                                    DropdownMenu(
+                                        expanded = calMenuExpanded,
+                                        onDismissRequest = { calMenuExpanded = false },
+                                        modifier = Modifier
+                                            .background(NernalColors.Card)
+                                            .border(1.dp, NernalColors.Border, RoundedCornerShape(12.dp)),
+                                    ) {
+                                        for (mode in CalendarViewMode.entries) {
+                                            val isCurrentMode = mode == state.calendarViewMode && selected
+                                            val icon = when (mode) {
+                                                CalendarViewMode.ITINERARY -> Icons.Rounded.ViewAgenda
+                                                CalendarViewMode.THREE_DAY -> Icons.Rounded.ViewColumn
+                                                CalendarViewMode.WEEK -> Icons.Rounded.CalendarViewWeek
+                                                CalendarViewMode.MONTH -> Icons.Rounded.CalendarMonth
+                                            }
+                                            DropdownMenuItem(
+                                                leadingIcon = {
+                                                    Icon(
+                                                        imageVector = icon,
+                                                        contentDescription = null,
+                                                        tint = if (isCurrentMode) NernalColors.Gold else NernalColors.InkMuted,
+                                                        modifier = Modifier.size(18.dp),
+                                                    )
+                                                },
+                                                text = {
+                                                    Text(
+                                                        text = mode.label,
+                                                        color = if (isCurrentMode) NernalColors.Gold else NernalColors.Ink,
+                                                        fontWeight = if (isCurrentMode) FontWeight.Bold else FontWeight.Normal,
+                                                    )
+                                                },
+                                                onClick = {
+                                                    onCalendarViewModeChange(mode)
+                                                    onFilterChange(HubFilter.EVENTS)
+                                                    calMenuExpanded = false
+                                                },
+                                            )
+                                        }
+                                    }
+                                }
+                            } else {
+                                Surface(
+                                    onClick = { onFilterChange(tab) },
+                                    color = if (selected) NernalColors.CardSubtle else Color.Black,
+                                    shape = RoundedCornerShape(10.dp),
+                                    border = BorderStroke(
+                                        width = 1.dp,
+                                        color = if (selected) NernalColors.Gold.copy(alpha = 0.8f) else NernalColors.BorderSubtle,
+                                    ),
+                                    modifier = Modifier.height(44.dp),
+                                ) {
+                                    Box(
+                                        contentAlignment = Alignment.Center,
+                                        modifier = Modifier.padding(horizontal = 14.dp),
+                                    ) {
                                         Text(
-                                            text = mode.label,
-                                            color = if (isSel) NernalColors.Ink else NernalColors.InkMuted,
-                                            fontSize = 13.sp,
-                                            fontWeight = if (isSel) FontWeight.Bold else FontWeight.Medium,
+                                            text = tab.label,
+                                            color = if (selected) NernalColors.Ink else NernalColors.InkMuted,
+                                            fontSize = 15.sp,
+                                            fontWeight = if (selected) FontWeight.Bold else FontWeight.Medium,
                                         )
                                     }
                                 }
                             }
                         }
                     }
+
+                    // Right: Add button
+                    Surface(
+                        onClick = { showAddDialog = true },
+                        color = NernalColors.CardInner,
+                        shape = RoundedCornerShape(10.dp),
+                        border = BorderStroke(1.dp, NernalColors.Gold.copy(alpha = 0.8f)),
+                        modifier = Modifier.height(44.dp),
+                    ) {
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(6.dp),
+                            modifier = Modifier.padding(horizontal = 12.dp),
+                        ) {
+                            Icon(
+                                imageVector = Icons.Rounded.Add,
+                                contentDescription = "Add Task or Event",
+                                tint = NernalColors.Gold,
+                                modifier = Modifier.size(20.dp),
+                            )
+                            Text("Add", color = NernalColors.Gold, fontSize = 14.sp, fontWeight = FontWeight.Bold)
+                        }
+                    }
+                }
+
+                if (showAddDialog) {
+                    AddReminderDialog(
+                        initialCategory = if (state.hubFilter == HubFilter.EVENTS) ReminderCategory.EVENT else ReminderCategory.TASK,
+                        onDismiss = { showAddDialog = false },
+                        onAdd = { t, c -> onAddReminder(t, c) },
+                    )
                 }
 
                 HorizontalDivider(color = NernalColors.BorderSubtle)
@@ -3307,7 +3372,6 @@ fun CalendarPrimaryWing(
                                         todayKey = state.todayKey,
                                         availableTaskLists = state.availableTaskLists,
                                         selectedTaskListIds = state.selectedTaskListIds,
-                                        shoppingTaskListIds = state.shoppingTaskListIds,
                                         activeTaskListFilters = state.activeTaskListFilters,
                                         availableCalendars = state.availableCalendars,
                                         onToggleActiveTaskListFilter = onToggleActiveTaskListFilter,
@@ -3324,7 +3388,7 @@ fun CalendarPrimaryWing(
                             }
                         }
                         else -> {
-                            // Tasks / Shopping / All views
+                            // Tasks / All views
                             OmniHubCard(
                                 reminders = state.reminders,
                                 activeFilter = state.hubFilter,
@@ -3332,7 +3396,6 @@ fun CalendarPrimaryWing(
                                 todayKey = state.todayKey,
                                 availableTaskLists = state.availableTaskLists,
                                 selectedTaskListIds = state.selectedTaskListIds,
-                                shoppingTaskListIds = state.shoppingTaskListIds,
                                 activeTaskListFilters = state.activeTaskListFilters,
                                 availableCalendars = state.availableCalendars,
                                 onToggleActiveTaskListFilter = onToggleActiveTaskListFilter,

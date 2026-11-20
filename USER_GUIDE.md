@@ -71,27 +71,23 @@ Onnkiosk supports connecting your Google account directly using your own OAuth C
 ## 4. Dashboard Features & Daily Operation
 
 ### Left Wing: Informational Telemetry
-- **Clock & Date**: High-contrast ambient clock with clean Day-of-Week, Month, Day, and Year display.
-- **Weather & Rain Alert**: Real-time temperature, condition badge, high/low, and automatic rain detection pill.
-- **Doppler Radar Modal**: Tap the **Radar** button in the weather card to open the fullscreen interactive RainViewer radar modal with zoom, pan, play/pause controls, and frame scrubber.
-- **Next Event Card**: Prominently highlights the very next upcoming appointment, its start time, remaining countdown, and location.
-- **Agenda & Calendar View**:
-  - Tab selector for **Agenda**, **Day**, **3-Day**, **Week**, and **Month** views.
-  - All-day events stay pinned cleanly to the top.
+- **Clock, Weather & Next Event Header**: High-contrast ambient clock with clean Day-of-Week, Month, Day, and Year display, real-time temperature, condition badge, 4-day forecast, and automatic NWS weather alert pills. The Next Event banner highlights your upcoming appointment with its time/date and an inline description snippet.
+- **Doppler Radar Modal**: Tap the **Radar** button in the weather card to open the fullscreen interactive RainViewer/NEXRAD radar modal with zoom, pan, play/pause controls, and frame scrubber.
+- **Home Hub (Calendar & Google Tasks)**:
+  - Tab selector for **All**, **Events (`Itinerary / 3-Day / Week / Month`) ▾**, and **Tasks** views.
+  - Multi-day all-day events consolidate cleanly into a single entry with a `Through YYYY-MM-DD` note, and all-day events stay pinned cleanly to the top of day views.
   - Tap any event to inspect location, organizer, attendees, and description.
-- **Google Tasks Checklist**:
-  - Tap the circular checkbox to toggle tasks completed (applies strikethrough styling and syncs with Google Tasks).
-  - Tap the **+** button to type and add new tasks directly from the counter.
-  - Delete completed tasks or clear lists.
+  - Tap circular checkboxes to mark Google Tasks done (with strikethrough styling and automatic Google sync), filter individual task lists via the filter dropdown, and use the 5-second **Undo** bar after deleting an item.
+  - Tap the **+** button in the top-right to open the **New Entry** dialog and add a **Task** or **Event** directly to your Google account.
+  - **Calendar Primary Mode**: Tap **Hide** in the photo bar (or toggle **Make Calendar Primary** in Settings) to expand Calendar & Tasks full-screen; tap **Show Photos** in the top bar to bring the photo carousel back.
 
 ### Right Wing: Lifestyle, Photos & Media
 - **Google Photos Ambient Slideshow**:
-  - Automatically rotates photos at configurable intervals (10s, 30s, 1m, 5m).
-  - Tap photo directly to skip immediately to the next image.
-  - **Year Filter**: Dropdown menu to filter photos from specific years (2017–2026) or show All Years.
-  - **Starred Favorites (`★`)**: Tap the star icon on any photo to add it to your local favorites. Tap **Favorites** in the bottom bar to cycle exclusively through starred photos.
-  - **Fullscreen Slideshow Mode**: Tap the fullscreen expansion icon for an edge-to-edge frame view. Remains in fullscreen mode until touched or dismissed.
-  - **Clean Date Captions**: Cleans up missing or bogus epoch date stamps (e.g. Dec 31, 1969) gracefully.
+  - Automatically rotates photos at configurable intervals (`5s`, `10s`, `15s`, `20s`, `30s`, `60s`), with swipe left/right navigation and tap-to-inspect fullscreen for 10 seconds.
+  - **Multi-Year & Album Filters**: Filter photos across specific years or all years in Settings, or filter by album.
+  - **Starred Favorites (`★`)**: Tap the star icon on any photo to add it to your local favorites. Tap **Star on / Star off** in the bottom bar to cycle exclusively through starred photos.
+  - **Fullscreen Slideshow Mode**: Tap the fullscreen expansion icon for an edge-to-edge frame view. Remains in fullscreen mode for 30 minutes or until touched/dismissed.
+  - **Auto-Detect Album Links**: Add a Google Task containing a `photos.app.goo.gl` link and Onnkiosk imports it into the slideshow automatically and marks the task complete.
 
 ---
 

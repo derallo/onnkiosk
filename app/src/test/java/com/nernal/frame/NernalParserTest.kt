@@ -99,18 +99,18 @@ class NernalParserTest {
     }
 
     @Test
-    fun parsesGoogleTaskListsAndTasksForTasksAndShopping() {
+    fun parsesGoogleTaskListsAndTasks() {
         val listsJson = """
             {
               "items": [
                 { "id": "list_default", "title": "My Tasks" },
-                { "id": "list_groceries", "title": "Shopping List" }
+                { "id": "list_groceries", "title": "Errands" }
               ]
             }
         """.trimIndent()
         val lists = NernalRepository.parseTaskListsJson(listsJson)
         assertEquals(2, lists.size)
-        assertEquals("Shopping List", lists[1].title)
+        assertEquals("Errands", lists[1].title)
 
         val tasksJson = """
             {
@@ -126,12 +126,8 @@ class NernalParserTest {
         assertFalse(parsedTasks[0].completed)
         assertEquals("2026-11-16", parsedTasks[0].dateKey)
         assertEquals(ReminderCategory.TASK, parsedTasks[0].category)
-
-        val parsedShopping = NernalRepository.parseTasksListJson(tasksJson, "list_groceries", ReminderCategory.SHOPPING)
-        assertTrue(parsedShopping[1].completed)
-        assertEquals(ReminderCategory.SHOPPING, parsedShopping[1].category)
-        assertEquals("list_groceries", parsedShopping[1].sourceId)
-        assertEquals("t2", parsedShopping[1].remoteId)
+        assertTrue(parsedTasks[1].completed)
+        assertEquals("t2", parsedTasks[1].remoteId)
     }
 
     @Test
@@ -391,12 +387,10 @@ class NernalParserTest {
             calendarId = "primary",
             zoneId = ZoneId.of("America/New_York"),
         )
-        assertEquals(3, items.size)
-        assertEquals(listOf("2026-07-10", "2026-07-11", "2026-07-12"), items.map { it.dateKey })
-        assertEquals(
-            listOf("cal:primary:trip1", "cal:primary:trip1:2026-07-11", "cal:primary:trip1:2026-07-12"),
-            items.map { it.id },
-        )
+        assertEquals(1, items.size)
+        assertEquals("2026-07-10", items[0].dateKey)
+        assertEquals("cal:primary:trip1", items[0].id)
+        assertTrue(items[0].notes?.contains("Through 2026-07-12") == true)
     }
 
     @Test

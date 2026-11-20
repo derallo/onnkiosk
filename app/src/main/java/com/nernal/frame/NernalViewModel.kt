@@ -105,7 +105,6 @@ data class NernalUiState(
     val calendarError: String? = null,
     val availableTaskLists: List<GoogleTaskListInfo> = emptyList(),
     val selectedTaskListIds: Set<String> = emptySet(),
-    val shoppingTaskListIds: Set<String> = emptySet(),
     val tasksError: String? = null,
     val customSharedAlbumUrls: List<String> = emptyList(),
     val photosApiError: String? = null,
@@ -190,7 +189,6 @@ class NernalViewModel(application: Application) : AndroidViewModel(application) 
                 oauthClientSecret = prefs.loadOAuthClientSecret(),
                 selectedCalendarIds = prefs.loadSelectedCalendarIds(),
                 selectedTaskListIds = selTaskLists,
-                shoppingTaskListIds = prefs.loadShoppingTaskListIds(),
                 activeTaskListFilters = savedActiveTaskListFilters,
                 customSharedAlbumUrls = prefs.loadCustomSharedAlbumUrls(),
                 pendingSyncCount = remOps.size,
@@ -493,7 +491,6 @@ class NernalViewModel(application: Application) : AndroidViewModel(application) 
                 calendarError = null,
                 availableTaskLists = emptyList(),
                 selectedTaskListIds = emptySet(),
-                shoppingTaskListIds = emptySet(),
                 tasksError = null,
                 photosApiError = null,
                 pickerSessionUri = null,
@@ -613,26 +610,16 @@ class NernalViewModel(application: Application) : AndroidViewModel(application) 
 
         taskListRes.onSuccess { lists ->
             var selLists = withContext(Dispatchers.IO) { prefs.loadSelectedTaskListIds() }
-            var shopLists = withContext(Dispatchers.IO) { prefs.loadShoppingTaskListIds() }
             if (!prefs.hasSelectedTaskListPreference() && lists.isNotEmpty()) {
                 selLists = lists.map { it.id }.toSet()
-                shopLists = lists
-                    .filter { l ->
-                        val lower = l.title.lowercase(Locale.US)
-                        lower.contains("shopping") || lower.contains("grocer")
-                    }
-                    .map { it.id }
-                    .toSet()
                 withContext(Dispatchers.IO) {
                     prefs.saveSelectedTaskListIds(selLists)
-                    prefs.saveShoppingTaskListIds(shopLists)
                 }
             }
             _uiState.update {
                 it.copy(
                     availableTaskLists = lists,
                     selectedTaskListIds = selLists,
-                    shoppingTaskListIds = shopLists,
                     tasksError = null,
                 )
             }
@@ -673,7 +660,6 @@ class NernalViewModel(application: Application) : AndroidViewModel(application) 
                 repo.fetchTasksForLists(
                     accessToken = token,
                     taskListIds = stateSnap.selectedTaskListIds,
-                    shoppingListIds = stateSnap.shoppingTaskListIds,
                 )
             }
             evDef.await() to tkDef.await()
@@ -769,17 +755,7 @@ class NernalViewModel(application: Application) : AndroidViewModel(application) 
         viewModelScope.launch { syncGoogleData(includePhotos = false) }
     }
 
-    fun toggleTaskListAsShopping(listId: String) {
-        val nextShop = _uiState.value.shoppingTaskListIds.toMutableSet()
-        if (!nextShop.add(listId)) nextShop.remove(listId)
-        val nextSel = (_uiState.value.selectedTaskListIds + listId).toSet()
-        prefs.saveShoppingTaskListIds(nextShop)
-        prefs.saveSelectedTaskListIds(nextSel)
-        _uiState.update { it.copy(shoppingTaskListIds = nextShop, selectedTaskListIds = nextSel) }
-        viewModelScope.launch { syncGoogleData(includePhotos = false) }
-    }
-
-    fun createGoogleTaskList(title: String, asShopping: Boolean) {
+    fun createGoogleTaskList(title: String) {
         val trimmed = title.trim()
         if (trimmed.isEmpty()) return
         viewModelScope.launch {
@@ -788,18 +764,11 @@ class NernalViewModel(application: Application) : AndroidViewModel(application) 
                 .onSuccess { created ->
                     val nextAvailable = _uiState.value.availableTaskLists + created
                     val nextSelected = _uiState.value.selectedTaskListIds + created.id
-                    val nextShopping = if (asShopping) {
-                        _uiState.value.shoppingTaskListIds + created.id
-                    } else {
-                        _uiState.value.shoppingTaskListIds
-                    }
                     prefs.saveSelectedTaskListIds(nextSelected)
-                    prefs.saveShoppingTaskListIds(nextShopping)
                     _uiState.update {
                         it.copy(
                             availableTaskLists = nextAvailable,
                             selectedTaskListIds = nextSelected,
-                            shoppingTaskListIds = nextShopping,
                             syncNotice = "Created Google Task list \"${created.title}\"",
                         )
                     }
@@ -1378,7 +1347,7 @@ class NernalViewModel(application: Application) : AndroidViewModel(application) 
         repo.loadMapTile(url, needsAlpha)
 
     // -------------------------------------------------------------------------
-    // Reminders (Calendar Events + Google Tasks + Shopping Lists)
+    // Reminders (Calendar Events + Google Tasks)
     // -------------------------------------------------------------------------
 
     fun setHubFilter(filter: HubFilter) {
@@ -1500,15 +1469,8 @@ class NernalViewModel(application: Application) : AndroidViewModel(application) 
                     ?: state.selectedCalendarIds.firstOrNull()
                     ?: state.availableCalendars.firstOrNull { it.isWritable }?.id
             }
-            ReminderCategory.SHOPPING -> {
-                state.selectedTaskListIds.firstOrNull { it in state.shoppingTaskListIds }
-                    ?: state.shoppingTaskListIds.firstOrNull()
-                    ?: state.selectedTaskListIds.firstOrNull()
-                    ?: state.availableTaskLists.firstOrNull()?.id
-            }
             ReminderCategory.TASK -> {
-                state.selectedTaskListIds.firstOrNull { it !in state.shoppingTaskListIds }
-                    ?: state.selectedTaskListIds.firstOrNull()
+                state.selectedTaskListIds.firstOrNull()
                     ?: state.availableTaskLists.firstOrNull()?.id
             }
         }
