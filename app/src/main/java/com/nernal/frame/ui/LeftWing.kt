@@ -54,7 +54,6 @@ import androidx.compose.material.icons.rounded.Event
 import androidx.compose.material.icons.rounded.ExpandLess
 import androidx.compose.material.icons.rounded.ExpandMore
 import androidx.compose.material.icons.rounded.FilterDrama
-import androidx.compose.material.icons.rounded.FilterList
 import androidx.compose.material.icons.rounded.Grain
 import androidx.compose.material.icons.rounded.KeyboardHide
 import androidx.compose.material.icons.rounded.LastPage
@@ -122,6 +121,8 @@ import androidx.compose.ui.text.rememberTextMeasurer
 import androidx.compose.ui.text.style.TextDecoration
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.text.withStyle
+import androidx.compose.ui.unit.Dp
+import androidx.compose.ui.unit.TextUnit
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.window.Dialog
@@ -891,6 +892,221 @@ private fun ForecastDayChip(
     }
 }
 
+@Composable
+private fun EventsViewDropdownPill(
+    calendarViewMode: CalendarViewMode,
+    onCalendarViewModeChange: (CalendarViewMode) -> Unit,
+    height: Dp,
+    fontSize: TextUnit,
+    horizontalPadding: Dp,
+    inactiveColor: Color,
+    activeBorderAlpha: Float,
+) {
+    var expanded by remember { mutableStateOf(false) }
+    val eventsActive = calendarViewMode != CalendarViewMode.NONE
+    Box {
+        Surface(
+            onClick = { expanded = !expanded },
+            color = if (eventsActive) NernalColors.CardSubtle else inactiveColor,
+            shape = RoundedCornerShape(10.dp),
+            border = BorderStroke(
+                width = 1.dp,
+                color = if (eventsActive) NernalColors.Gold.copy(alpha = activeBorderAlpha) else NernalColors.BorderSubtle,
+            ),
+            modifier = Modifier.height(height),
+        ) {
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(4.dp),
+                modifier = Modifier.padding(horizontal = horizontalPadding),
+            ) {
+                Text(
+                    text = "Events (${calendarViewMode.label}) ▾",
+                    color = if (eventsActive) NernalColors.Ink else NernalColors.InkMuted,
+                    fontSize = fontSize,
+                    fontWeight = if (eventsActive) FontWeight.Bold else FontWeight.Medium,
+                )
+            }
+        }
+
+        DropdownMenu(
+            expanded = expanded,
+            onDismissRequest = { expanded = false },
+            modifier = Modifier
+                .background(NernalColors.Card)
+                .border(1.dp, NernalColors.Border, RoundedCornerShape(12.dp)),
+        ) {
+            for (mode in CalendarViewMode.entries) {
+                val isCurrentMode = mode == calendarViewMode
+                val icon = when (mode) {
+                    CalendarViewMode.ITINERARY -> Icons.Rounded.ViewAgenda
+                    CalendarViewMode.THREE_DAY -> Icons.Rounded.ViewColumn
+                    CalendarViewMode.WEEK -> Icons.Rounded.CalendarViewWeek
+                    CalendarViewMode.MONTH -> Icons.Rounded.CalendarMonth
+                    CalendarViewMode.NONE -> Icons.Rounded.VisibilityOff
+                }
+                DropdownMenuItem(
+                    leadingIcon = {
+                        Icon(
+                            imageVector = icon,
+                            contentDescription = null,
+                            tint = if (isCurrentMode) NernalColors.Gold else NernalColors.InkMuted,
+                            modifier = Modifier.size(18.dp),
+                        )
+                    },
+                    text = {
+                        Text(
+                            text = mode.label,
+                            color = if (isCurrentMode) NernalColors.Gold else NernalColors.Ink,
+                            fontWeight = if (isCurrentMode) FontWeight.Bold else FontWeight.Normal,
+                        )
+                    },
+                    onClick = {
+                        onCalendarViewModeChange(mode)
+                        expanded = false
+                    },
+                )
+            }
+        }
+    }
+}
+
+@Composable
+private fun TasksFilterDropdownPill(
+    showTasks: Boolean,
+    relevantTaskLists: List<GoogleTaskListInfo>,
+    activeTaskListFilters: Set<String>,
+    onShowTasksChange: (Boolean) -> Unit,
+    onToggleActiveTaskListFilter: (String) -> Unit,
+    height: Dp,
+    fontSize: TextUnit,
+    iconSize: Dp,
+    horizontalPadding: Dp,
+    horizontalSpacing: Dp,
+    inactiveColor: Color,
+    activeBorderAlpha: Float,
+) {
+    var expanded by remember { mutableStateOf(false) }
+    val effectiveActiveIds = remember(activeTaskListFilters, relevantTaskLists) {
+        if (activeTaskListFilters.isEmpty()) relevantTaskLists.map { it.id }.toSet() else activeTaskListFilters
+    }
+    val checkedCount = remember(relevantTaskLists, effectiveActiveIds) {
+        relevantTaskLists.count { it.id in effectiveActiveIds }
+    }
+    val label = when {
+        !showTasks -> "Tasks"
+        relevantTaskLists.size > 1 && checkedCount in 1 until relevantTaskLists.size ->
+            "Tasks ($checkedCount/${relevantTaskLists.size}) ▾"
+        relevantTaskLists.isNotEmpty() -> "Tasks ▾"
+        else -> "Tasks"
+    }
+
+    Box {
+        Surface(
+            onClick = {
+                if (!showTasks) {
+                    onShowTasksChange(true)
+                    if (relevantTaskLists.isNotEmpty()) {
+                        expanded = true
+                    }
+                } else if (relevantTaskLists.isNotEmpty()) {
+                    expanded = !expanded
+                } else {
+                    onShowTasksChange(false)
+                }
+            },
+            color = if (showTasks) NernalColors.CardSubtle else inactiveColor,
+            shape = RoundedCornerShape(10.dp),
+            border = BorderStroke(
+                width = 1.dp,
+                color = if (showTasks) NernalColors.Gold.copy(alpha = activeBorderAlpha) else NernalColors.BorderSubtle,
+            ),
+            modifier = Modifier.height(height),
+        ) {
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(horizontalSpacing),
+                modifier = Modifier.padding(horizontal = horizontalPadding),
+            ) {
+                Icon(
+                    imageVector = if (showTasks) Icons.Rounded.CheckBox else Icons.Rounded.CheckBoxOutlineBlank,
+                    contentDescription = null,
+                    tint = if (showTasks) NernalColors.Gold else NernalColors.InkMuted,
+                    modifier = Modifier.size(iconSize),
+                )
+                Text(
+                    text = label,
+                    color = if (showTasks) NernalColors.Ink else NernalColors.InkMuted,
+                    fontSize = fontSize,
+                    fontWeight = if (showTasks) FontWeight.Bold else FontWeight.Medium,
+                )
+            }
+        }
+
+        if (relevantTaskLists.isNotEmpty()) {
+            DropdownMenu(
+                expanded = expanded,
+                onDismissRequest = { expanded = false },
+                modifier = Modifier
+                    .background(NernalColors.Card)
+                    .border(1.dp, NernalColors.Border, RoundedCornerShape(12.dp)),
+            ) {
+                relevantTaskLists.forEach { taskList ->
+                    val isChecked = taskList.id in effectiveActiveIds
+                    DropdownMenuItem(
+                        leadingIcon = {
+                            Icon(
+                                imageVector = if (isChecked) Icons.Rounded.CheckBox else Icons.Rounded.CheckBoxOutlineBlank,
+                                contentDescription = null,
+                                tint = if (isChecked) NernalColors.Gold else NernalColors.InkMuted,
+                                modifier = Modifier.size(18.dp),
+                            )
+                        },
+                        text = {
+                            Text(
+                                text = taskList.title,
+                                color = if (isChecked) NernalColors.Ink else NernalColors.InkMuted,
+                                fontSize = 14.sp,
+                                fontWeight = if (isChecked) FontWeight.SemiBold else FontWeight.Normal,
+                            )
+                        },
+                        onClick = {
+                            if (isChecked && checkedCount <= 1) {
+                                onShowTasksChange(false)
+                                expanded = false
+                            } else {
+                                onToggleActiveTaskListFilter(taskList.id)
+                            }
+                        },
+                    )
+                }
+                HorizontalDivider(color = NernalColors.BorderSubtle)
+                DropdownMenuItem(
+                    leadingIcon = {
+                        Icon(
+                            imageVector = Icons.Rounded.VisibilityOff,
+                            contentDescription = null,
+                            tint = if (!showTasks) NernalColors.Gold else NernalColors.InkMuted,
+                            modifier = Modifier.size(18.dp),
+                        )
+                    },
+                    text = {
+                        Text(
+                            text = "None",
+                            color = if (!showTasks) NernalColors.Gold else NernalColors.Ink,
+                            fontWeight = if (!showTasks) FontWeight.Bold else FontWeight.Normal,
+                        )
+                    },
+                    onClick = {
+                        onShowTasksChange(false)
+                        expanded = false
+                    },
+                )
+            }
+        }
+    }
+}
+
 @OptIn(ExperimentalLayoutApi::class)
 @Composable
 fun OmniHubCard(
@@ -916,8 +1132,6 @@ fun OmniHubCard(
     onSelectAddCategory: (ReminderCategory) -> Unit = {},
     modifier: Modifier = Modifier,
 ) {
-    var filterMenuExpanded by remember { mutableStateOf(false) }
-    var eventsMenuExpanded by remember { mutableStateOf(false) }
     var showAddDialog by remember { mutableStateOf(false) }
 
     val eventsListState = rememberLazyListState()
@@ -927,9 +1141,6 @@ fun OmniHubCard(
     val relevantTaskLists = remember(availableTaskLists, selectedTaskListIds) {
         val filtered = availableTaskLists.filter { it.id in selectedTaskListIds }
         if (filtered.isNotEmpty()) filtered else availableTaskLists
-    }
-    val tabFilterableLists = remember(relevantTaskLists, showTasks) {
-        if (showTasks) relevantTaskLists else emptyList()
     }
 
     val tomorrowKey = remember(todayKey) {
@@ -999,7 +1210,7 @@ fun OmniHubCard(
             verticalArrangement = Arrangement.spacedBy(6.dp),
         ) {
             if (showHeader) {
-                // Header: "Home Hub" + Events Mode Dropdown + Tasks Toggle + Filter + Add
+                // Header: "Home Hub" + Events Mode Dropdown + Tasks Filter Dropdown + Add
                 Row(
                 modifier = Modifier.fillMaxWidth(),
                 verticalAlignment = Alignment.CenterVertically,
@@ -1015,182 +1226,30 @@ fun OmniHubCard(
                     verticalAlignment = Alignment.CenterVertically,
                     horizontalArrangement = Arrangement.spacedBy(4.dp),
                 ) {
-                    val eventsActive = calendarViewMode != CalendarViewMode.NONE
-                    Box {
-                        Surface(
-                            color = if (eventsActive) NernalColors.CardSubtle else NernalColors.CardInner,
-                            shape = RoundedCornerShape(10.dp),
-                            border = BorderStroke(
-                                width = 1.dp,
-                                color = if (eventsActive) NernalColors.Gold.copy(alpha = 0.7f) else NernalColors.BorderSubtle,
-                            ),
-                            modifier = Modifier
-                                .height(48.dp)
-                                .clickable { eventsMenuExpanded = !eventsMenuExpanded },
-                        ) {
-                            Row(
-                                verticalAlignment = Alignment.CenterVertically,
-                                horizontalArrangement = Arrangement.spacedBy(4.dp),
-                                modifier = Modifier.padding(horizontal = 9.dp),
-                            ) {
-                                Text(
-                                    text = "Events (${calendarViewMode.label}) ▾",
-                                    color = if (eventsActive) NernalColors.Ink else NernalColors.InkMuted,
-                                    fontSize = 14.sp,
-                                    fontWeight = if (eventsActive) FontWeight.Bold else FontWeight.Medium,
-                                )
-                            }
-                        }
+                    EventsViewDropdownPill(
+                        calendarViewMode = calendarViewMode,
+                        onCalendarViewModeChange = onCalendarViewModeChange,
+                        height = 48.dp,
+                        fontSize = 14.sp,
+                        horizontalPadding = 9.dp,
+                        inactiveColor = NernalColors.CardInner,
+                        activeBorderAlpha = 0.7f,
+                    )
 
-                        DropdownMenu(
-                            expanded = eventsMenuExpanded,
-                            onDismissRequest = { eventsMenuExpanded = false },
-                            modifier = Modifier
-                                .background(NernalColors.Card)
-                                .border(1.dp, NernalColors.Border, RoundedCornerShape(12.dp)),
-                        ) {
-                            for (mode in CalendarViewMode.entries) {
-                                val isCurrentMode = mode == calendarViewMode
-                                val icon = when (mode) {
-                                    CalendarViewMode.ITINERARY -> Icons.Rounded.ViewAgenda
-                                    CalendarViewMode.THREE_DAY -> Icons.Rounded.ViewColumn
-                                    CalendarViewMode.WEEK -> Icons.Rounded.CalendarViewWeek
-                                    CalendarViewMode.MONTH -> Icons.Rounded.CalendarMonth
-                                    CalendarViewMode.NONE -> Icons.Rounded.VisibilityOff
-                                }
-                                DropdownMenuItem(
-                                    leadingIcon = {
-                                        Icon(
-                                            imageVector = icon,
-                                            contentDescription = null,
-                                            tint = if (isCurrentMode) NernalColors.Gold else NernalColors.InkMuted,
-                                            modifier = Modifier.size(18.dp),
-                                        )
-                                    },
-                                    text = {
-                                        Text(
-                                            text = mode.label,
-                                            color = if (isCurrentMode) NernalColors.Gold else NernalColors.Ink,
-                                            fontWeight = if (isCurrentMode) FontWeight.Bold else FontWeight.Normal,
-                                        )
-                                    },
-                                    onClick = {
-                                        onCalendarViewModeChange(mode)
-                                        eventsMenuExpanded = false
-                                    },
-                                )
-                            }
-                        }
-                    }
-
-                    // Independent Tasks on/off toggle
-                    Surface(
-                        color = if (showTasks) NernalColors.CardSubtle else NernalColors.CardInner,
-                        shape = RoundedCornerShape(10.dp),
-                        border = BorderStroke(
-                            width = 1.dp,
-                            color = if (showTasks) NernalColors.Gold.copy(alpha = 0.7f) else NernalColors.BorderSubtle,
-                        ),
-                        modifier = Modifier
-                            .height(48.dp)
-                            .clickable { onShowTasksChange(!showTasks) },
-                    ) {
-                        Row(
-                            verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.spacedBy(4.dp),
-                            modifier = Modifier.padding(horizontal = 9.dp),
-                        ) {
-                            Icon(
-                                imageVector = if (showTasks) Icons.Rounded.CheckBox else Icons.Rounded.CheckBoxOutlineBlank,
-                                contentDescription = null,
-                                tint = if (showTasks) NernalColors.Gold else NernalColors.InkMuted,
-                                modifier = Modifier.size(16.dp),
-                            )
-                            Text(
-                                text = "Tasks",
-                                color = if (showTasks) NernalColors.Ink else NernalColors.InkMuted,
-                                fontSize = 14.sp,
-                                fontWeight = if (showTasks) FontWeight.Bold else FontWeight.Medium,
-                            )
-                        }
-                    }
-
-                    if (tabFilterableLists.size > 1) {
-                        Box {
-                            val checkedInTab = tabFilterableLists.count { it.id in activeTaskListFilters }
-                            val hasPartialFilter = checkedInTab < tabFilterableLists.size
-                            Surface(
-                                color = if (hasPartialFilter) NernalColors.CardSubtle else NernalColors.CardInner,
-                                shape = RoundedCornerShape(10.dp),
-                                border = BorderStroke(
-                                    width = 1.dp,
-                                    color = if (hasPartialFilter) NernalColors.Gold.copy(alpha = 0.85f) else NernalColors.BorderSubtle,
-                                ),
-                                modifier = Modifier
-                                    .height(48.dp)
-                                    .clickable { filterMenuExpanded = !filterMenuExpanded },
-                            ) {
-                                Row(
-                                    verticalAlignment = Alignment.CenterVertically,
-                                    horizontalArrangement = Arrangement.spacedBy(4.dp),
-                                    modifier = Modifier.padding(horizontal = 9.dp),
-                                ) {
-                                    Icon(
-                                        imageVector = Icons.Rounded.FilterList,
-                                        contentDescription = "Filter Task Lists",
-                                        tint = if (hasPartialFilter) NernalColors.Gold else NernalColors.InkMuted,
-                                        modifier = Modifier.size(15.dp),
-                                    )
-                                    Text(
-                                        text = "Filter",
-                                        color = if (hasPartialFilter) NernalColors.Gold else NernalColors.InkMuted,
-                                        fontSize = 12.sp,
-                                        fontWeight = FontWeight.SemiBold,
-                                    )
-                                }
-                            }
-
-                            DropdownMenu(
-                                expanded = filterMenuExpanded,
-                                onDismissRequest = { filterMenuExpanded = false },
-                                modifier = Modifier
-                                    .background(NernalColors.Card)
-                                    .border(1.dp, NernalColors.Border, RoundedCornerShape(12.dp)),
-                            ) {
-                                tabFilterableLists.forEach { taskList ->
-                                    val isChecked = taskList.id in activeTaskListFilters
-                                    val canUncheck = checkedInTab > 1
-                                    DropdownMenuItem(
-                                        text = {
-                                            Row(
-                                                verticalAlignment = Alignment.CenterVertically,
-                                                horizontalArrangement = Arrangement.spacedBy(8.dp),
-                                            ) {
-                                                Icon(
-                                                    imageVector = if (isChecked) Icons.Rounded.CheckBox else Icons.Rounded.CheckBoxOutlineBlank,
-                                                    contentDescription = null,
-                                                    tint = if (isChecked) NernalColors.Gold else NernalColors.InkMuted,
-                                                    modifier = Modifier.size(18.dp),
-                                                )
-                                                Text(
-                                                    text = taskList.title,
-                                                    color = if (isChecked) NernalColors.Ink else NernalColors.InkMuted,
-                                                    fontSize = 13.sp,
-                                                    fontWeight = if (isChecked) FontWeight.SemiBold else FontWeight.Normal,
-                                                )
-                                            }
-                                        },
-                                        enabled = !isChecked || canUncheck,
-                                        onClick = {
-                                            if (!isChecked || canUncheck) {
-                                                onToggleActiveTaskListFilter(taskList.id)
-                                            }
-                                        },
-                                    )
-                                }
-                            }
-                        }
-                    }
+                    TasksFilterDropdownPill(
+                        showTasks = showTasks,
+                        relevantTaskLists = relevantTaskLists,
+                        activeTaskListFilters = activeTaskListFilters,
+                        onShowTasksChange = onShowTasksChange,
+                        onToggleActiveTaskListFilter = onToggleActiveTaskListFilter,
+                        height = 48.dp,
+                        fontSize = 14.sp,
+                        iconSize = 16.dp,
+                        horizontalPadding = 9.dp,
+                        horizontalSpacing = 4.dp,
+                        inactiveColor = NernalColors.CardInner,
+                        activeBorderAlpha = 0.7f,
+                    )
 
                     // Top Right '+' Button to add task or event
                     Surface(
@@ -3946,8 +4005,6 @@ fun CalendarPrimaryWing(
     onSelectAddCategory: (ReminderCategory) -> Unit = {},
     modifier: Modifier = Modifier,
 ) {
-    var calMenuExpanded by remember { mutableStateOf(false) }
-    var filterMenuExpanded by remember { mutableStateOf(false) }
     var showAddDialog by remember { mutableStateOf(false) }
 
     val relevantTaskLists = remember(state.availableTaskLists, state.selectedTaskListIds) {
@@ -4003,189 +4060,41 @@ fun CalendarPrimaryWing(
                         .padding(14.dp),
                     verticalArrangement = Arrangement.spacedBy(10.dp),
                 ) {
-                // Header with Events View Dropdown + Tasks Toggle + Task Filter + Add
+                // Header with Events View Dropdown + Tasks Filter Dropdown + Add
                 Row(
                     modifier = Modifier.fillMaxWidth(),
                     verticalAlignment = Alignment.CenterVertically,
                     horizontalArrangement = Arrangement.SpaceBetween,
                 ) {
-                    // Left: Events dropdown + Tasks toggle + Task list filter
+                    // Left: Events dropdown + Tasks filter dropdown
                     Row(
                         verticalAlignment = Alignment.CenterVertically,
                         horizontalArrangement = Arrangement.spacedBy(6.dp),
                     ) {
-                        val eventsActive = state.calendarViewMode != CalendarViewMode.NONE
-                        Box {
-                            Surface(
-                                onClick = { calMenuExpanded = !calMenuExpanded },
-                                color = if (eventsActive) NernalColors.CardSubtle else Color.Black,
-                                shape = RoundedCornerShape(10.dp),
-                                border = BorderStroke(
-                                    width = 1.dp,
-                                    color = if (eventsActive) NernalColors.Gold.copy(alpha = 0.8f) else NernalColors.BorderSubtle,
-                                ),
-                                modifier = Modifier.height(44.dp),
-                            ) {
-                                Row(
-                                    verticalAlignment = Alignment.CenterVertically,
-                                    horizontalArrangement = Arrangement.spacedBy(4.dp),
-                                    modifier = Modifier.padding(horizontal = 14.dp),
-                                ) {
-                                    Text(
-                                        text = "Events (${state.calendarViewMode.label}) ▾",
-                                        color = if (eventsActive) NernalColors.Ink else NernalColors.InkMuted,
-                                        fontSize = 15.sp,
-                                        fontWeight = if (eventsActive) FontWeight.Bold else FontWeight.Medium,
-                                    )
-                                }
-                            }
+                        EventsViewDropdownPill(
+                            calendarViewMode = state.calendarViewMode,
+                            onCalendarViewModeChange = onCalendarViewModeChange,
+                            height = 44.dp,
+                            fontSize = 15.sp,
+                            horizontalPadding = 14.dp,
+                            inactiveColor = Color.Black,
+                            activeBorderAlpha = 0.8f,
+                        )
 
-                            DropdownMenu(
-                                expanded = calMenuExpanded,
-                                onDismissRequest = { calMenuExpanded = false },
-                                modifier = Modifier
-                                    .background(NernalColors.Card)
-                                    .border(1.dp, NernalColors.Border, RoundedCornerShape(12.dp)),
-                            ) {
-                                for (mode in CalendarViewMode.entries) {
-                                    val isCurrentMode = mode == state.calendarViewMode
-                                    val icon = when (mode) {
-                                        CalendarViewMode.ITINERARY -> Icons.Rounded.ViewAgenda
-                                        CalendarViewMode.THREE_DAY -> Icons.Rounded.ViewColumn
-                                        CalendarViewMode.WEEK -> Icons.Rounded.CalendarViewWeek
-                                        CalendarViewMode.MONTH -> Icons.Rounded.CalendarMonth
-                                        CalendarViewMode.NONE -> Icons.Rounded.VisibilityOff
-                                    }
-                                    DropdownMenuItem(
-                                        leadingIcon = {
-                                            Icon(
-                                                imageVector = icon,
-                                                contentDescription = null,
-                                                tint = if (isCurrentMode) NernalColors.Gold else NernalColors.InkMuted,
-                                                modifier = Modifier.size(18.dp),
-                                            )
-                                        },
-                                        text = {
-                                            Text(
-                                                text = mode.label,
-                                                color = if (isCurrentMode) NernalColors.Gold else NernalColors.Ink,
-                                                fontWeight = if (isCurrentMode) FontWeight.Bold else FontWeight.Normal,
-                                            )
-                                        },
-                                        onClick = {
-                                            onCalendarViewModeChange(mode)
-                                            calMenuExpanded = false
-                                        },
-                                    )
-                                }
-                            }
-                        }
-
-                        Surface(
-                            onClick = { onShowTasksChange(!state.showTasks) },
-                            color = if (state.showTasks) NernalColors.CardSubtle else Color.Black,
-                            shape = RoundedCornerShape(10.dp),
-                            border = BorderStroke(
-                                width = 1.dp,
-                                color = if (state.showTasks) NernalColors.Gold.copy(alpha = 0.8f) else NernalColors.BorderSubtle,
-                            ),
-                            modifier = Modifier.height(44.dp),
-                        ) {
-                            Row(
-                                verticalAlignment = Alignment.CenterVertically,
-                                horizontalArrangement = Arrangement.spacedBy(6.dp),
-                                modifier = Modifier.padding(horizontal = 14.dp),
-                            ) {
-                                Icon(
-                                    imageVector = if (state.showTasks) Icons.Rounded.CheckBox else Icons.Rounded.CheckBoxOutlineBlank,
-                                    contentDescription = null,
-                                    tint = if (state.showTasks) NernalColors.Gold else NernalColors.InkMuted,
-                                    modifier = Modifier.size(17.dp),
-                                )
-                                Text(
-                                    text = "Tasks",
-                                    color = if (state.showTasks) NernalColors.Ink else NernalColors.InkMuted,
-                                    fontSize = 15.sp,
-                                    fontWeight = if (state.showTasks) FontWeight.Bold else FontWeight.Medium,
-                                )
-                            }
-                        }
-
-                        if (state.showTasks && relevantTaskLists.size > 1) {
-                            Box {
-                                val checkedInTab = relevantTaskLists.count { it.id in state.activeTaskListFilters }
-                                val hasPartialFilter = checkedInTab < relevantTaskLists.size
-                                Surface(
-                                    onClick = { filterMenuExpanded = !filterMenuExpanded },
-                                    color = if (hasPartialFilter) NernalColors.CardSubtle else Color.Black,
-                                    shape = RoundedCornerShape(10.dp),
-                                    border = BorderStroke(
-                                        width = 1.dp,
-                                        color = if (hasPartialFilter) NernalColors.Gold.copy(alpha = 0.85f) else NernalColors.BorderSubtle,
-                                    ),
-                                    modifier = Modifier.height(44.dp),
-                                ) {
-                                    Row(
-                                        verticalAlignment = Alignment.CenterVertically,
-                                        horizontalArrangement = Arrangement.spacedBy(4.dp),
-                                        modifier = Modifier.padding(horizontal = 10.dp),
-                                    ) {
-                                        Icon(
-                                            imageVector = Icons.Rounded.FilterList,
-                                            contentDescription = "Filter Task Lists",
-                                            tint = if (hasPartialFilter) NernalColors.Gold else NernalColors.InkMuted,
-                                            modifier = Modifier.size(16.dp),
-                                        )
-                                        Text(
-                                            text = "Filter",
-                                            color = if (hasPartialFilter) NernalColors.Gold else NernalColors.InkMuted,
-                                            fontSize = 13.sp,
-                                            fontWeight = FontWeight.SemiBold,
-                                        )
-                                    }
-                                }
-
-                                DropdownMenu(
-                                    expanded = filterMenuExpanded,
-                                    onDismissRequest = { filterMenuExpanded = false },
-                                    modifier = Modifier
-                                        .background(NernalColors.Card)
-                                        .border(1.dp, NernalColors.Border, RoundedCornerShape(12.dp)),
-                                ) {
-                                    relevantTaskLists.forEach { taskList ->
-                                        val isChecked = taskList.id in state.activeTaskListFilters
-                                        val canUncheck = checkedInTab > 1
-                                        DropdownMenuItem(
-                                            text = {
-                                                Row(
-                                                    verticalAlignment = Alignment.CenterVertically,
-                                                    horizontalArrangement = Arrangement.spacedBy(8.dp),
-                                                ) {
-                                                    Icon(
-                                                        imageVector = if (isChecked) Icons.Rounded.CheckBox else Icons.Rounded.CheckBoxOutlineBlank,
-                                                        contentDescription = null,
-                                                        tint = if (isChecked) NernalColors.Gold else NernalColors.InkMuted,
-                                                        modifier = Modifier.size(18.dp),
-                                                    )
-                                                    Text(
-                                                        text = taskList.title,
-                                                        color = if (isChecked) NernalColors.Ink else NernalColors.InkMuted,
-                                                        fontSize = 13.sp,
-                                                        fontWeight = if (isChecked) FontWeight.SemiBold else FontWeight.Normal,
-                                                    )
-                                                }
-                                            },
-                                            enabled = !isChecked || canUncheck,
-                                            onClick = {
-                                                if (!isChecked || canUncheck) {
-                                                    onToggleActiveTaskListFilter(taskList.id)
-                                                }
-                                            },
-                                        )
-                                    }
-                                }
-                            }
-                        }
+                        TasksFilterDropdownPill(
+                            showTasks = state.showTasks,
+                            relevantTaskLists = relevantTaskLists,
+                            activeTaskListFilters = state.activeTaskListFilters,
+                            onShowTasksChange = onShowTasksChange,
+                            onToggleActiveTaskListFilter = onToggleActiveTaskListFilter,
+                            height = 44.dp,
+                            fontSize = 15.sp,
+                            iconSize = 17.dp,
+                            horizontalPadding = 14.dp,
+                            horizontalSpacing = 6.dp,
+                            inactiveColor = Color.Black,
+                            activeBorderAlpha = 0.8f,
+                        )
                     }
 
                     // Right: Add button

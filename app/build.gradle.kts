@@ -30,8 +30,8 @@ android {
         applicationId = "com.nernal.frame.oauth"
         minSdk = 33
         targetSdk = 36
-        versionCode = 8
-        versionName = "0.3.5-oauth"
+        versionCode = 9
+        versionName = "0.3.6-oauth"
 
         buildConfigField(
             "String",

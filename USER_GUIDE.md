@@ -78,19 +78,19 @@ Onnkiosk supports connecting your Google account directly using your own OAuth C
 - **Doppler Radar Modal**: Tap the Radar icon right beside the current temperature (to the left of the weather collapse button) to open the fullscreen interactive RainViewer/NEXRAD radar modal with zoom, pan, play/pause controls, and frame scrubber.
 - **Home Hub (Events & Google Tasks)**:
   - **Events (`Itinerary / 3-Day / Week / Month / None`) ▾** dropdown to pick your calendar layout or select **None** to hide events and view only Tasks.
-  - **Tasks** toggle button to independently show or hide tasks across Itinerary, 3-Day, Week, Month, and standalone (`Events: None`) views.
+  - **Tasks** dropdown pill: tapping **Tasks** when off turns Tasks on and immediately opens a checkable dropdown of your Google Task lists below (with **None** at the bottom to turn Tasks off). Tap **Tasks ▾** anytime while active to check/uncheck specific task lists or choose **None** to hide Tasks across Itinerary, 3-Day, Week, Month, and standalone (`Events: None`) views.
   - Swipe left or right on **3-Day**, **Week**, or **Month** calendars to step backward/forward in time.
   - Multi-day all-day events consolidate cleanly into a single entry with a `Through YYYY-MM-DD` note, and all-day events stay pinned cleanly to the top of day views.
   - **Month View Day Pop-out**: Tap any day in Month view to pop out a modal list of that day's events and tasks; tap **+ Add Task / Event** to schedule a Task (to a chosen or default Task list) or Event directly on that date (remembering your last chosen type), or tap any event in the pop-out to open full Event Details.
   - Tap any event or task row to inspect details (location/calendar/list, notes, and a **Delete** button in the bottom-left corner).
-  - Tap circular checkboxes to mark Google Tasks done (with strikethrough styling and automatic Google sync), filter individual task lists via the filter dropdown, and use the 5-second **Undo** bar after deleting an item.
+  - Tap circular checkboxes to mark Google Tasks done (with strikethrough styling and automatic Google sync), check/uncheck individual task lists from the **Tasks ▾** dropdown, and use the 5-second **Undo** bar after deleting an item.
   - Tap the **+** button in the top-right to open the **New Entry** dialog and add a **Task** (picking which Google Task list or setting a Default) or **Event** directly to your Google account; the dialog remembers whether you last chose **Task** or **Event**. You can also set your **Default** Google Task list under **Settings → Google Account → Task Lists**.
   - **Calendar Primary Mode**: Tap the bottom-right collapse icon (`▸|` in landscape, `▾` in portrait) on the photo bar (or toggle **Make Calendar Primary** in Settings) to expand Calendar & Tasks full-screen while preserving full date/time, weather, and forecast cards (with the same weather collapse toggle); tap the restore icon (`|◂` in landscape, `▴` in portrait) in the exact same bottom-right corner to bring the photo carousel back.
 
 ### Adaptive Portrait Mode
 When held or mounted vertically (`height > width`), Onnkiosk automatically reorganizes into a full-width 3-tier vertical stack:
 1. **Top**: Unified Clock, Day/Date, Location, Weather Collapse, Utility Controls (`🎤` Speak, Memories, Eye, Night, Settings), and collapsible Current Weather + 4-day forecast cards.
-2. **Middle**: Full-width **Home Hub** (`All`, `Events`, `Tasks`, plus Itinerary / 3-Day / Week / Month views).
+2. **Middle**: Full-width **Home Hub** (`Events` (`Itinerary / 3-Day / Week / Month / None`) + independent `Tasks` dropdown).
 3. **Bottom**: Full-width **Photo Carousel** with full space for `Album · Year` and all photo bar controls (hiding photos expands Home Hub cleanly down to the bottom).
 
 ### Right Wing: Lifestyle, Photos & Adaptive Smart Controls

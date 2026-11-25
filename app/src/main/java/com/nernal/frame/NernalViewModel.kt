@@ -1527,10 +1527,16 @@ class NernalViewModel(application: Application) : AndroidViewModel(application) 
                 withContext(Dispatchers.IO) { prefs.saveDefaultTaskListId(defaultList) }
             }
             _uiState.update {
+                val activeFilters = if (it.activeTaskListFilters.isEmpty() && selLists.isNotEmpty() && prefs.loadActiveTaskListFilters() == null) {
+                    selLists
+                } else {
+                    it.activeTaskListFilters
+                }
                 it.copy(
                     availableTaskLists = lists,
                     selectedTaskListIds = selLists,
                     defaultTaskListId = defaultList,
+                    activeTaskListFilters = activeFilters,
                     tasksError = null,
                 )
             }
@@ -2130,7 +2136,10 @@ class NernalViewModel(application: Application) : AndroidViewModel(application) 
     }
 
     fun toggleActiveTaskListFilter(listId: String) {
-        val current = _uiState.value.activeTaskListFilters
+        val state = _uiState.value
+        val current = state.activeTaskListFilters.ifEmpty {
+            state.selectedTaskListIds.ifEmpty { state.availableTaskLists.map { it.id }.toSet() }
+        }
         val updated = if (listId in current) current - listId else current + listId
         if (updated.isEmpty()) return
         prefs.saveActiveTaskListFilters(updated)
