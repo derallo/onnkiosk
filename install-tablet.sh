@@ -168,9 +168,18 @@ apply_kiosk_settings() {
     echo "    - Granting self-update permission (REQUEST_INSTALL_PACKAGES)..."
     $ADB_CMD shell appops set "$PACKAGE_NAME" REQUEST_INSTALL_PACKAGES allow 2>/dev/null || true
 
+    # Grant background-to-foreground return permission (needed when returning from browser OAuth/Picker)
+    echo "    - Granting background-to-foreground return permission (SYSTEM_ALERT_WINDOW)..."
+    $ADB_CMD shell appops set "$PACKAGE_NAME" SYSTEM_ALERT_WINDOW allow 2>/dev/null || true
+
     # Grant notifications permission for event alerts
     echo "    - Granting notification permissions for event alerts..."
     $ADB_CMD shell pm grant "$PACKAGE_NAME" android.permission.POST_NOTIFICATIONS 2>/dev/null || true
+
+    # Grant camera & microphone permissions when supported by the tablet hardware
+    echo "    - Granting camera & microphone permissions (if hardware present)..."
+    $ADB_CMD shell pm grant "$PACKAGE_NAME" android.permission.CAMERA 2>/dev/null || true
+    $ADB_CMD shell pm grant "$PACKAGE_NAME" android.permission.RECORD_AUDIO 2>/dev/null || true
 
     echo -e "${GREEN}[✓] Kiosk hardware settings applied.${NC}"
 }

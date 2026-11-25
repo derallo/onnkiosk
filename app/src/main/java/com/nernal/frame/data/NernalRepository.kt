@@ -42,6 +42,18 @@ data class PickerSessionInfo(
     val pickerUri: String,
 )
 
+data class PiSyncOutcome(
+    val reachableUrl: String?,
+    val reminders: List<ReminderItem>?,
+    val starredIds: Set<String>?,
+    val remainingReminderOps: List<PendingReminderOp>,
+    val remainingFavOps: List<PendingFavOp>,
+    val albumPhotos: List<AlbumPhoto>?,
+    val albumTotalCount: Int?,
+    val memoryEntries: List<MemoryEntry>? = null,
+    val error: String? = null,
+)
+
 class NernalRepository(private val cacheDir: File? = null) {
 
     val httpClient: OkHttpClient = OkHttpClient.Builder()
@@ -49,6 +61,11 @@ class NernalRepository(private val cacheDir: File? = null) {
         .readTimeout(25, TimeUnit.SECONDS)
         .followRedirects(true)
         .followSslRedirects(true)
+        .build()
+
+    private val piClient: OkHttpClient = httpClient.newBuilder()
+        .connectTimeout(2500, TimeUnit.MILLISECONDS)
+        .readTimeout(6, TimeUnit.SECONDS)
         .build()
 
     // 24 MB cache protects 32-bit device heap while holding ~10-15 downsampled 1280x800 RGB_565 bitmaps.
@@ -218,10 +235,32 @@ class NernalRepository(private val cacheDir: File? = null) {
     suspend fun fetchRadarData(
         lat: Double = UserLocation.DEFAULT.latitude,
         lon: Double = UserLocation.DEFAULT.longitude,
+        piBaseUrl: String? = null,
     ): Result<RadarData> = withContext(Dispatchers.IO) {
         val startMs = System.currentTimeMillis()
         runCatching {
-            val rainViewer = runCatching {
+            val piRadar = piBaseUrl?.let { base ->
+                runCatching {
+                    piClient.newCall(Request.Builder().url("$base/api/radar").build()).execute().use { r ->
+                        if (!r.isSuccessful) return@use null
+                        val root = JSONObject(r.body?.string() ?: return@use null)
+                        val arr = root.optJSONArray("frames") ?: return@use null
+                        val host = root.optString("host", "https://tilecache.rainviewer.com")
+                        val nowSec = System.currentTimeMillis() / 1000L
+                        val frames = buildList {
+                            for (i in 0 until arr.length()) {
+                                val o = arr.optJSONObject(i) ?: continue
+                                val time = o.optLong("time", 0L)
+                                val path = o.optString("path")
+                                if (path.isNotBlank()) add(RadarFrame(time, path, time > nowSec))
+                            }
+                        }
+                        if (frames.isNotEmpty()) RadarData(host, frames, System.currentTimeMillis()) else null
+                    }
+                }.getOrNull()
+            }
+
+            val rainViewer = piRadar ?: runCatching {
                 val req = Request.Builder().url(RAINVIEWER_URL).build()
                 val body = httpClient.newCall(req).execute().use { resp ->
                     if (!resp.isSuccessful) error("RainViewer HTTP ${resp.code}")
@@ -284,6 +323,321 @@ class NernalRepository(private val cacheDir: File? = null) {
         val bmp = BitmapFactory.decodeByteArray(payload, 0, payload.size, opts) ?: return@withContext null
         tileCache.put(key, bmp)
         bmp
+    }
+
+    // -------------------------------------------------------------------------
+    // Raspberry Pi Two-Way Sync (Optional Home Hub)
+    // -------------------------------------------------------------------------
+
+    suspend fun resolveReachablePiUrl(configuredUrl: String): String? = withContext(Dispatchers.IO) {
+        val candidates = listOf(
+            FramePrefs.normalizePiUrl(configuredUrl),
+            FramePrefs.DEFAULT_PI_URL,
+            "http://touchscreen-pi.local:3000",
+        ).distinct()
+
+        val checks = coroutineScope {
+            candidates.map { base ->
+                async {
+                    val ok = runCatching {
+                        val req = Request.Builder().url("$base/api/album/summary").build()
+                        piClient.newCall(req).execute().use { it.isSuccessful }
+                    }.getOrDefault(false)
+                    if (ok) base else null
+                }
+            }.awaitAll()
+        }
+        checks.firstOrNull { it != null }
+    }
+
+    suspend fun syncWithPi(
+        configuredPiUrl: String,
+        pendingReminderOps: List<PendingReminderOp>,
+        pendingFavOps: List<PendingFavOp>,
+        includePhotos: Boolean,
+        includeMemoryBook: Boolean = true,
+    ): PiSyncOutcome = withContext(Dispatchers.IO) {
+        val baseUrl = resolveReachablePiUrl(configuredPiUrl)
+            ?: return@withContext PiSyncOutcome(
+                reachableUrl = null,
+                reminders = null,
+                starredIds = null,
+                remainingReminderOps = pendingReminderOps,
+                remainingFavOps = pendingFavOps,
+                albumPhotos = null,
+                albumTotalCount = null,
+                memoryEntries = null,
+                error = "Pi unreachable",
+            )
+
+        // 1. Flush pending favorite toggles & pull authoritative Pi favorites
+        val remainingFavs = pendingFavOps.toMutableList()
+        for (op in pendingFavOps) {
+            val payload = JSONObject().apply {
+                put("photoId", op.photoId)
+                put("favorite", op.favorite)
+            }
+            val ok = postJson(baseUrl, "/api/photos/favorite", payload)
+            if (ok) {
+                remainingFavs.removeAll { it.photoId == op.photoId }
+            }
+        }
+        val piFavorites = fetchPiFavorites(baseUrl)?.toMutableSet()
+        if (piFavorites != null) {
+            for (op in remainingFavs) {
+                if (op.favorite) piFavorites.add(op.photoId) else piFavorites.remove(op.photoId)
+            }
+        }
+
+        // 2. Flush pending reminder ops FIFO -> map temp IDs -> pull authoritative Pi reminders
+        val remainingRemOps = mutableListOf<PendingReminderOp>()
+        val tempIdMap = mutableMapOf<String, String>()
+        var flushHalted = false
+
+        for (op in pendingReminderOps) {
+            if (flushHalted) {
+                remainingRemOps.add(op)
+                continue
+            }
+            val resolvedId = tempIdMap[op.reminderId] ?: op.remoteId ?: op.reminderId
+            when (op.action) {
+                PendingReminderAction.ADD -> {
+                    val createdId = postNewReminderToPi(baseUrl, op)
+                    if (createdId != null) {
+                        tempIdMap[op.reminderId] = createdId
+                        if (op.completed) {
+                            patchReminderOnPi(baseUrl, createdId, completed = true)
+                        }
+                    } else {
+                        flushHalted = true
+                        remainingRemOps.add(op)
+                    }
+                }
+                PendingReminderAction.UPDATE -> {
+                    val ok = patchReminderOnPi(baseUrl, resolvedId, completed = op.completed)
+                    if (!ok) {
+                        flushHalted = true
+                        remainingRemOps.add(op.copy(reminderId = resolvedId))
+                    }
+                }
+                PendingReminderAction.DELETE -> {
+                    val ok = deleteReminderOnPi(baseUrl, resolvedId)
+                    if (!ok) {
+                        flushHalted = true
+                        remainingRemOps.add(op.copy(reminderId = resolvedId))
+                    }
+                }
+            }
+        }
+
+        val piReminders = fetchPiReminders(baseUrl)
+        val mergedReminders = piReminders?.let { applyUnflushedPiOps(it, remainingRemOps) }
+
+        // 3. Optionally fetch Pi's balanced 400-photo selection + full library count
+        var albumPhotos: List<AlbumPhoto>? = null
+        var albumTotal: Int? = null
+        if (includePhotos) {
+            fetchPiAlbumPhotos(baseUrl)?.let { (photos, total) ->
+                albumPhotos = photos
+                albumTotal = total
+            }
+        }
+
+        // 4. Optionally fetch read-only Memory Book entries from Pi
+        val memoryEntries = if (includeMemoryBook) fetchPiMemoryBook(baseUrl) else null
+
+        PiSyncOutcome(
+            reachableUrl = baseUrl,
+            reminders = mergedReminders,
+            starredIds = piFavorites,
+            remainingReminderOps = remainingRemOps,
+            remainingFavOps = remainingFavs,
+            albumPhotos = albumPhotos,
+            albumTotalCount = albumTotal,
+            memoryEntries = memoryEntries,
+        )
+    }
+
+    suspend fun triggerPiAlbumRefresh(piBaseUrl: String): Boolean = withContext(Dispatchers.IO) {
+        postJson(piBaseUrl, "/api/album/refresh", JSONObject())
+    }
+
+    private fun postJson(baseUrl: String, path: String, json: JSONObject): Boolean = runCatching {
+        val req = Request.Builder()
+            .url("$baseUrl$path")
+            .post(json.toString().toRequestBody(JSON_MEDIA_TYPE))
+            .build()
+        piClient.newCall(req).execute().use { it.isSuccessful }
+    }.getOrDefault(false)
+
+    private fun postNewReminderToPi(baseUrl: String, op: PendingReminderOp): String? = runCatching {
+        val json = JSONObject().apply {
+            put("text", op.text)
+            if (!op.time.isNullOrBlank()) put("time", op.time)
+            if (!op.dateKey.isNullOrBlank()) put("date", op.dateKey)
+            put("category", op.category.piValue)
+        }
+        val req = Request.Builder()
+            .url("$baseUrl/api/reminders")
+            .post(json.toString().toRequestBody(JSON_MEDIA_TYPE))
+            .build()
+        piClient.newCall(req).execute().use { resp ->
+            if (!resp.isSuccessful) return@runCatching null
+            val body = resp.body?.string() ?: return@runCatching null
+            JSONObject(body).optString("id").takeIf { it.isNotBlank() }
+        }
+    }.getOrNull()
+
+    private fun patchReminderOnPi(baseUrl: String, id: String, completed: Boolean): Boolean = runCatching {
+        val json = JSONObject().apply { put("completed", completed) }
+        val req = Request.Builder()
+            .url("$baseUrl/api/reminders/$id")
+            .patch(json.toString().toRequestBody(JSON_MEDIA_TYPE))
+            .build()
+        val status = piClient.newCall(req).execute().use { it.code }
+        if (status in 200..299) return@runCatching true
+        if (status == 404) {
+            val toggleReq = Request.Builder()
+                .url("$baseUrl/api/reminders/$id/toggle")
+                .patch(ByteArray(0).toRequestBody(JSON_MEDIA_TYPE))
+                .build()
+            return@runCatching piClient.newCall(toggleReq).execute().use { it.isSuccessful || it.code == 404 }
+        }
+        false
+    }.getOrDefault(false)
+
+    private fun deleteReminderOnPi(baseUrl: String, id: String): Boolean = runCatching {
+        val req = Request.Builder()
+            .url("$baseUrl/api/reminders/$id")
+            .delete()
+            .build()
+        piClient.newCall(req).execute().use { it.isSuccessful || it.code == 404 }
+    }.getOrDefault(false)
+
+    private fun fetchPiReminders(baseUrl: String): List<ReminderItem>? = try {
+        val req = Request.Builder().url("$baseUrl/api/reminders").build()
+        val body = piClient.newCall(req).execute().use { resp ->
+            if (!resp.isSuccessful) return null
+            resp.body?.string() ?: return null
+        }
+        val arr = JSONArray(body)
+        buildList(arr.length()) {
+            for (i in 0 until arr.length()) {
+                val o = arr.optJSONObject(i) ?: continue
+                val id = o.optString("id")
+                val text = o.optString("text")
+                if (id.isBlank() || text.isBlank()) continue
+                val time = o.optString("time").takeIf { it.isNotBlank() && it != "null" }
+                val date = o.optString("date").takeIf { it.isNotBlank() && it != "null" }
+                val catStr = o.optString("category").takeIf { it.isNotBlank() }
+                    ?: if (time != null || date != null) "calendar" else "task"
+                val createdAtMs = runCatching {
+                    Instant.parse(o.optString("createdAt")).toEpochMilli()
+                }.getOrDefault(System.currentTimeMillis())
+                add(
+                    ReminderItem(
+                        id = id,
+                        text = text,
+                        category = ReminderCategory.fromPi(catStr),
+                        dateKey = date,
+                        time = time,
+                        completed = o.optBoolean("completed", false),
+                        createdAtMs = createdAtMs,
+                        sourceId = PI_SOURCE_ID,
+                        remoteId = id,
+                    )
+                )
+            }
+        }
+    } catch (_: Exception) {
+        null
+    }
+
+    private fun fetchPiFavorites(baseUrl: String): Set<String>? = try {
+        val req = Request.Builder().url("$baseUrl/api/photos/favorites").build()
+        val body = piClient.newCall(req).execute().use { resp ->
+            if (!resp.isSuccessful) return null
+            resp.body?.string() ?: return null
+        }
+        val arr = JSONObject(body).optJSONArray("favorites") ?: return emptySet()
+        buildSet(arr.length()) {
+            for (i in 0 until arr.length()) {
+                val id = arr.optString(i)
+                if (id.isNotBlank()) add(id)
+            }
+        }
+    } catch (_: Exception) {
+        null
+    }
+
+    private fun fetchPiAlbumPhotos(baseUrl: String): Pair<List<AlbumPhoto>, Int>? = try {
+        val req = Request.Builder().url("$baseUrl/api/album/photos?year=all").build()
+        val body = piClient.newCall(req).execute().use { resp ->
+            if (!resp.isSuccessful) return null
+            resp.body?.string() ?: return null
+        }
+        val root = JSONObject(body)
+        val totalPhotos = root.optInt("totalUnfilteredPhotos", root.optInt("totalPhotos", 0))
+        val arr = root.optJSONArray("photos") ?: return null
+        val photos = buildList(arr.length()) {
+            for (i in 0 until arr.length()) {
+                val o = arr.optJSONObject(i) ?: continue
+                val yr = o.optInt("year", 0)
+                val ts = o.optLong("timestamp", 0L).takeIf { it > 0L }
+                add(
+                    AlbumPhoto(
+                        id = o.optString("id"),
+                        url = o.optString("url"),
+                        width = o.optInt("width", 1920),
+                        height = o.optInt("height", 1080),
+                        timestampMs = ts,
+                        year = yr.takeIf { it > 1970 },
+                        albumTitle = o.optString("albumTitle", "Family Memories"),
+                        albumUrl = o.optString("albumUrl", ""),
+                    )
+                )
+            }
+        }
+        photos to maxOf(totalPhotos, photos.size)
+    } catch (_: Exception) {
+        null
+    }
+
+    private fun fetchPiMemoryBook(baseUrl: String): List<MemoryEntry>? = try {
+        val req = Request.Builder().url("$baseUrl/api/memory-book").build()
+        val body = piClient.newCall(req).execute().use { resp ->
+            if (!resp.isSuccessful) return null
+            resp.body?.string() ?: return null
+        }
+        parsePiMemoryBookJson(body)
+    } catch (_: Exception) {
+        null
+    }
+
+    private fun applyUnflushedPiOps(
+        base: List<ReminderItem>,
+        ops: List<PendingReminderOp>,
+    ): List<ReminderItem> {
+        val map = base.associateBy { it.id }.toMutableMap()
+        for (op in ops) {
+            when (op.action) {
+                PendingReminderAction.ADD -> map[op.reminderId] = ReminderItem(
+                    id = op.reminderId,
+                    text = op.text,
+                    category = op.category,
+                    dateKey = op.dateKey,
+                    time = op.time,
+                    completed = op.completed,
+                    sourceId = op.sourceId ?: PI_SOURCE_ID,
+                    remoteId = op.remoteId,
+                )
+                PendingReminderAction.UPDATE -> map[op.reminderId]?.let {
+                    map[op.reminderId] = it.copy(completed = op.completed)
+                }
+                PendingReminderAction.DELETE -> map.remove(op.reminderId)
+            }
+        }
+        return map.values.toList()
     }
 
     // -------------------------------------------------------------------------
@@ -663,7 +1017,7 @@ class NernalRepository(private val cacheDir: File? = null) {
 
                 val allLists = coroutineScope {
                     scrapedFirstPages.map { first ->
-                        async { paginateRemainingAlbumPages(first, maxPages = 40) }
+                        async { paginateRemainingAlbumPages(first, maxPages = 65) }
                     }.awaitAll()
                 }
                 for (list in allLists) {
@@ -1053,15 +1407,16 @@ class NernalRepository(private val cacheDir: File? = null) {
 
     internal companion object {
         private val JSON_MEDIA_TYPE = "application/json; charset=utf-8".toMediaType()
+        const val PI_SOURCE_ID = "pi"
         const val PICKER_ALBUM_MARKER = "picker"
         const val FEEDBACK_RELAY_URL = "https://onnkiosk-feedback-relay-1041770212384.us-west1.run.app/api/feedback"
         private const val DISK_CACHE_MAX_BYTES = 180L * 1024 * 1024
         private const val DISK_CACHE_TARGET_BYTES = 150L * 1024 * 1024
 
         private val BEARER_TOKEN_REGEX = Regex("""(?i)\bBearer\s+[A-Za-z0-9._~+/=-]{8,}""")
-        private val JSON_SECRET_REGEX = Regex("""(?i)("(?:access_token|refresh_token|id_token|client_secret|oauthClientSecret)"\s*:\s*")([^"]+)(")""")
-        private val QUERY_SECRET_REGEX = Regex("""(?i)((?:access_token|refresh_token|id_token|client_secret|code)=)([^&\s"']+)""")
-        private val GOOGLE_SECRET_PREFIX_REGEX = Regex("""(?:GOCSPX-[A-Za-z0-9_-]+|ya29\.[A-Za-z0-9._-]+|1//[A-Za-z0-9._-]+)""")
+        private val JSON_SECRET_REGEX = Regex("""(?i)("(?:access_token|refresh_token|id_token|client_secret|oauthClientSecret|geminiApiKey|apiKey|x-goog-api-key)"\s*:\s*")([^"]+)(")""")
+        private val QUERY_SECRET_REGEX = Regex("""(?i)((?:access_token|refresh_token|id_token|client_secret|code|key)=)([^&\s"']+)""")
+        private val GOOGLE_SECRET_PREFIX_REGEX = Regex("""(?:GOCSPX-[A-Za-z0-9_-]+|ya29\.[A-Za-z0-9._-]+|1//[A-Za-z0-9._-]+|AIza[0-9A-Za-z_-]{20,})""")
 
         fun scrubSensitiveTokens(raw: String): String =
             raw
@@ -1070,7 +1425,92 @@ class NernalRepository(private val cacheDir: File? = null) {
                 .replace(QUERY_SECRET_REGEX, "$1[REDACTED]")
                 .replace(GOOGLE_SECRET_PREFIX_REGEX, "[REDACTED]")
 
+        fun parsePiMemoryBookJson(jsonText: String): List<MemoryEntry> {
+            val root = JSONObject(jsonText)
+            val notebooksArr = root.optJSONArray("notebooks")
+            val notebookNames = mutableMapOf<String, String>()
+            if (notebooksArr != null) {
+                for (i in 0 until notebooksArr.length()) {
+                    val nb = notebooksArr.optJSONObject(i) ?: continue
+                    val id = nb.optString("id")
+                    val name = nb.optString("name", id)
+                    if (id.isNotBlank()) notebookNames[id] = name
+                }
+            }
+            val docsArr = root.optJSONArray("docs") ?: return emptyList()
+            return buildList(docsArr.length()) {
+                for (i in 0 until docsArr.length()) {
+                    val d = docsArr.optJSONObject(i) ?: continue
+                    val id = d.optString("id")
+                    val title = d.optString("title")
+                    if (id.isBlank() || title.isBlank()) continue
+                    val nbId = d.optString("notebookId", "notes")
+                    val nbLabel = notebookNames[nbId] ?: nbId.replaceFirstChar { it.uppercase() }
+                    val contentParts = mutableListOf<String>()
+                    val rawContent = d.optString("content").trim()
+                    if (rawContent.isNotBlank()) contentParts.add(rawContent)
+                    val recipe = d.optJSONObject("recipe")
+                    if (recipe != null) {
+                        val ingredients = recipe.optJSONArray("ingredients")
+                        if (ingredients != null && ingredients.length() > 0) {
+                            contentParts.add(
+                                buildString {
+                                    appendLine("Ingredients:")
+                                    for (j in 0 until ingredients.length()) {
+                                        val ing = ingredients.optString(j).trim()
+                                        if (ing.isNotBlank()) appendLine("• $ing")
+                                    }
+                                }.trimEnd()
+                            )
+                        }
+                        val steps = recipe.optJSONArray("steps")
+                        if (steps != null && steps.length() > 0) {
+                            contentParts.add(
+                                buildString {
+                                    appendLine("Steps:")
+                                    for (j in 0 until steps.length()) {
+                                        val st = steps.optString(j).trim()
+                                        if (st.isNotBlank()) appendLine("${j + 1}. $st")
+                                    }
+                                }.trimEnd()
+                            )
+                        }
+                    }
+                    val updatedAtMs = runCatching {
+                        Instant.parse(d.optString("updatedAt")).toEpochMilli()
+                    }.getOrDefault(System.currentTimeMillis())
+                    add(
+                        MemoryEntry(
+                            id = id,
+                            notebook = nbLabel,
+                            title = title,
+                            summary = d.optString("summary"),
+                            content = contentParts.joinToString("\n\n").ifBlank { d.optString("summary") },
+                            updatedAtMs = updatedAtMs,
+                            fromPi = true,
+                        )
+                    )
+                }
+            }
+        }
+
         val PHOTO_LINK_REGEX = Regex("""https://(?:photos\.app\.goo\.gl/[A-Za-z0-9_-]+|photos\.google\.com/(?:share|album)/[^\s"<>]+)""")
+        val GEMINI_API_KEY_REGEX = Regex("""AIza[0-9A-Za-z_-]{30,50}""")
+
+        fun extractGeminiKeyCandidates(reminders: List<ReminderItem>): List<GeminiKeyCandidate> {
+            val seenKeys = linkedSetOf<String>()
+            return buildList {
+                for (item in reminders) {
+                    if (item.category != ReminderCategory.TASK) continue
+                    val combined = listOfNotNull(item.text, item.notes).joinToString("\n")
+                    val match = GEMINI_API_KEY_REGEX.find(combined)?.value ?: continue
+                    if (seenKeys.add(match)) {
+                        val cleanedTitle = item.text.replace(match, "").trim().ifBlank { "Google Task" }
+                        add(GeminiKeyCandidate(taskId = item.id, taskTitle = cleanedTitle, apiKey = match))
+                    }
+                }
+            }
+        }
 
         val EASTERN_ZONE: ZoneId = ZoneId.of("America/New_York")
 
@@ -1553,7 +1993,7 @@ class NernalRepository(private val cacheDir: File? = null) {
             val sunrises = dailyObj.optJSONArray("sunrise")
             val sunsets = dailyObj.optJSONArray("sunset")
 
-            val dayCount = minOf(times.length(), 4)
+            val dayCount = minOf(times.length(), 5)
             val daily = buildList(dayCount) {
                 for (i in 0 until dayCount) {
                     val iso = times.getString(i)

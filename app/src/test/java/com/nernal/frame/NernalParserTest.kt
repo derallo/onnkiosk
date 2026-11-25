@@ -485,16 +485,174 @@ class NernalParserTest {
     fun scrubSensitiveTokensRedactsBearerAndSecrets() {
         val raw = """
             Authorization: Bearer ya29.a0AfB_test_token_123456
-            {"access_token":"secret_access_val","refresh_token":"1//0gTestRefreshToken","client_secret":"GOCSPX-TestSecretValue"}
-            callback?code=4/0TestCode123&access_token=tokABC
+            {"access_token":"secret_access_val","refresh_token":"1//0gTestRefreshToken","client_secret":"GOCSPX-TestSecretValue","geminiApiKey":"AIzaSyTestFakeKey1234567890abcdefg"}
+            callback?code=4/0TestCode123&access_token=tokABC&key=AIzaSyAnotherFakeKey0987654321xyz
         """.trimIndent()
         val scrubbed = NernalRepository.scrubSensitiveTokens(raw)
         assertFalse(scrubbed.contains("ya29.a0AfB_test_token_123456"))
         assertFalse(scrubbed.contains("secret_access_val"))
         assertFalse(scrubbed.contains("1//0gTestRefreshToken"))
         assertFalse(scrubbed.contains("GOCSPX-TestSecretValue"))
+        assertFalse(scrubbed.contains("AIzaSyTestFakeKey1234567890abcdefg"))
+        assertFalse(scrubbed.contains("AIzaSyAnotherFakeKey0987654321xyz"))
         assertFalse(scrubbed.contains("4/0TestCode123"))
         assertFalse(scrubbed.contains("tokABC"))
         assertTrue(scrubbed.contains("[REDACTED]"))
+    }
+
+    @Test
+    fun piUrlNormalizationAndCategoryMapping() {
+        assertEquals("http://192.168.68.86:3000", com.nernal.frame.data.FramePrefs.normalizePiUrl("192.168.68.86"))
+        assertEquals("http://192.168.68.86:3000", com.nernal.frame.data.FramePrefs.normalizePiUrl("http://192.168.68.86/"))
+        assertEquals("http://touchscreen-pi.local:8080", com.nernal.frame.data.FramePrefs.normalizePiUrl("touchscreen-pi.local:8080"))
+        assertEquals(ReminderCategory.EVENT, ReminderCategory.fromPi("calendar"))
+        assertEquals(ReminderCategory.TASK, ReminderCategory.fromPi("shopping"))
+        assertEquals(ReminderCategory.TASK, ReminderCategory.fromPi("task"))
+    }
+
+    @Test
+    fun onDeviceVoiceEngineHandlesCommandsAndActions() {
+        val weather = com.nernal.frame.data.WeatherData(
+            currentTempF = 68,
+            apparentTempF = 68,
+            humidityPercent = 50,
+            windMph = 5,
+            weatherCode = 1,
+            isDay = true,
+            description = "Mainly Clear",
+            precipInches = 0.0,
+            sunriseIso = "06:45",
+            sunsetIso = "17:15",
+            daily = listOf(
+                com.nernal.frame.data.DailyForecast("2026-11-21", "Today", 1, 72, 49, 10),
+            ),
+            alerts = emptyList(),
+            fetchedAtMs = 1L,
+        )
+        val ctx = com.nernal.frame.data.VoiceContextSnapshot(
+            clockTime = "9:15",
+            clockAmPm = "AM",
+            clockDate = "Saturday, Nov 21, 2026",
+            todayKey = "2026-11-21",
+            locationName = "MINERAL, VA",
+            weather = weather,
+            reminders = listOf(
+                ReminderItem("e1", "Dentist", ReminderCategory.EVENT, dateKey = "2026-11-21", time = "2:00 PM"),
+                ReminderItem("t1", "Buy eggs", ReminderCategory.TASK),
+            ),
+            isFullscreen = false,
+            isCalendarPrimary = false,
+            showRadarModal = false,
+        )
+
+        val timeRes = com.nernal.frame.data.OnDeviceVoiceEngine.handleCommand("What time is it?", ctx)
+        assertTrue(timeRes.spokenText.contains("9:15 AM"))
+
+        val weatherRes = com.nernal.frame.data.OnDeviceVoiceEngine.handleCommand("What is the weather forecast?", ctx)
+        assertTrue(weatherRes.spokenText.contains("68 degrees"))
+        assertTrue(weatherRes.spokenText.contains("72"))
+
+        val briefRes = com.nernal.frame.data.OnDeviceVoiceEngine.handleCommand("Give me my morning briefing", ctx)
+        assertTrue(briefRes.spokenText.contains("Dentist"))
+        assertTrue(briefRes.spokenText.contains("Buy eggs"))
+
+        val addTaskRes = com.nernal.frame.data.OnDeviceVoiceEngine.handleCommand("Remind me to pick up milk", ctx)
+        val addAction = addTaskRes.actions.filterIsInstance<com.nernal.frame.data.VoiceAction.AddReminder>().first()
+        assertEquals("pick up milk", addAction.text)
+        assertEquals(ReminderCategory.TASK, addAction.category)
+
+        val radarRes = com.nernal.frame.data.OnDeviceVoiceEngine.handleCommand("Open radar", ctx)
+        assertEquals(
+            "open_radar",
+            radarRes.actions.filterIsInstance<com.nernal.frame.data.VoiceAction.DashboardCommand>().first().command,
+        )
+
+        val byeRes = com.nernal.frame.data.OnDeviceVoiceEngine.handleCommand("Goodbye", ctx)
+        assertTrue(byeRes.shouldEndConversation)
+    }
+
+    @Test
+    fun geminiVisionHintAndMotionDetection() {
+        assertTrue(com.nernal.frame.data.GeminiAssistantClient.looksLikeVisionQuestion("What am I holding in my hand?"))
+        assertTrue(com.nernal.frame.data.GeminiAssistantClient.looksLikeVisionQuestion("Read this recipe card"))
+        assertFalse(com.nernal.frame.data.GeminiAssistantClient.looksLikeVisionQuestion("What time is my appointment?"))
+
+        val staticFrame = ByteArray(32 * 24) { 100.toByte() }
+        val lightingShiftFrame = ByteArray(32 * 24) { 120.toByte() }
+        assertFalse(com.nernal.frame.hardware.CameraMotionController.detectGridMotion(staticFrame, lightingShiftFrame))
+
+        val movedFrame = staticFrame.copyOf()
+        for (i in 0 until 200) movedFrame[i] = 220.toByte()
+        assertTrue(com.nernal.frame.hardware.CameraMotionController.detectGridMotion(staticFrame, movedFrame))
+    }
+
+    @Test
+    fun parsePiMemoryBookJsonExtractsRecipesAndNotes() {
+        val json = """
+            {
+              "notebooks": [
+                {"id": "recipes", "name": "Recipes"},
+                {"id": "family", "name": "Family"}
+              ],
+              "docs": [
+                {
+                  "id": "recipes/chili",
+                  "notebookId": "recipes",
+                  "title": "Grandma's Chili",
+                  "summary": "Classic beef chili",
+                  "content": "Simmer slowly.",
+                  "recipe": {
+                    "ingredients": ["1 lb beef", "1 can kidney beans"],
+                    "steps": ["Brown beef", "Add beans"]
+                  },
+                  "updatedAt": "2026-11-18T10:00:00Z"
+                }
+              ]
+            }
+        """.trimIndent()
+        val entries = NernalRepository.parsePiMemoryBookJson(json)
+        assertEquals(1, entries.size)
+        assertEquals("Recipes", entries[0].notebook)
+        assertEquals("Grandma's Chili", entries[0].title)
+        assertTrue(entries[0].content.contains("1 lb beef"))
+        assertTrue(entries[0].content.contains("Brown beef"))
+        assertTrue(entries[0].fromPi)
+    }
+
+    @Test
+    fun extractsGeminiApiKeyCandidatesFromTasksOnlyAndAlertKeysAreStable() {
+        val fakeKey = "AIzaSyD1234567890abcdefghijklmnopqrstuv"
+        val items = listOf(
+            ReminderItem("t1", "Gemini key $fakeKey", ReminderCategory.TASK),
+            ReminderItem("t2", "Buy milk", ReminderCategory.TASK, notes = "No key here"),
+            ReminderItem("e1", "Event with $fakeKey", ReminderCategory.EVENT),
+        )
+        val candidates = NernalRepository.extractGeminiKeyCandidates(items)
+        assertEquals(1, candidates.size)
+        assertEquals("t1", candidates[0].taskId)
+        assertEquals("Gemini key", candidates[0].taskTitle)
+        assertEquals(fakeKey, candidates[0].apiKey)
+        assertTrue(candidates[0].maskedKey.startsWith("AIzaSyD1"))
+        assertTrue(candidates[0].maskedKey.endsWith("stuv"))
+
+        val alert = com.nernal.frame.data.WeatherAlert(
+            event = "Wind Advisory",
+            headline = "Wind Advisory issued until 8 PM",
+            severity = "Moderate",
+            description = "Gusts up to 45 mph.",
+        )
+        assertEquals("Wind Advisory|Wind Advisory issued until 8 PM", alert.alertKey())
+    }
+
+    @Test
+    fun alarmConfigFormats12HourTimesAndDefaults() {
+        val def = com.nernal.frame.data.AlarmConfig()
+        assertFalse(def.enabled)
+        assertEquals("7:00 AM", def.formattedTime)
+        assertEquals(com.nernal.frame.data.AlarmBriefTiming.ON_DISMISS, def.speakBriefTiming)
+
+        assertEquals("12:05 AM", def.copy(hour24 = 0, minute = 5).formattedTime)
+        assertEquals("12:30 PM", def.copy(hour24 = 12, minute = 30).formattedTime)
+        assertEquals("6:45 PM", def.copy(hour24 = 18, minute = 45).formattedTime)
     }
 }

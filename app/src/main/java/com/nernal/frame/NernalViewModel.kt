@@ -7,20 +7,31 @@ import android.util.Log
 import androidx.core.net.toUri
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
+import com.nernal.frame.data.AlarmBriefTiming
+import com.nernal.frame.data.AlarmConfig
 import com.nernal.frame.data.AlbumPhoto
 import com.nernal.frame.data.AppReleaseInfo
 import com.nernal.frame.data.AppUpdateManager
 import com.nernal.frame.data.CalendarViewMode
+import com.nernal.frame.data.ConversationTurn
+import com.nernal.frame.data.DeviceCapabilities
 import com.nernal.frame.data.FramePrefs
+import com.nernal.frame.data.GeminiAssistantClient
+import com.nernal.frame.data.GeminiKeyCandidate
 import com.nernal.frame.data.GoogleAccountProfile
 import com.nernal.frame.data.GoogleAuthManager
 import com.nernal.frame.data.GoogleAuthState
 import com.nernal.frame.data.GoogleCalendarInfo
 import com.nernal.frame.data.GoogleTaskListInfo
 import com.nernal.frame.data.HubFilter
+import com.nernal.frame.data.MemoryEntry
 import com.nernal.frame.data.NernalRepository
+import com.nernal.frame.data.OnDeviceVoiceEngine
+import com.nernal.frame.data.PendingFavOp
 import com.nernal.frame.data.PendingReminderAction
 import com.nernal.frame.data.PendingReminderOp
+import com.nernal.frame.data.PiConnectionState
+import com.nernal.frame.data.QuickAnswerCardData
 import com.nernal.frame.data.RadarData
 import com.nernal.frame.data.ReminderCategory
 import com.nernal.frame.data.ReminderItem
@@ -28,10 +39,17 @@ import com.nernal.frame.data.RemoteMutationResult
 import com.nernal.frame.data.TokenResult
 import com.nernal.frame.data.UpdateCheckResult
 import com.nernal.frame.data.UserLocation
+import com.nernal.frame.data.VoiceAction
+import com.nernal.frame.data.VoiceAssistantState
+import com.nernal.frame.data.VoiceContextSnapshot
+import com.nernal.frame.data.WeatherAlert
 import com.nernal.frame.data.WeatherData
 import com.nernal.frame.data.isEventWithinReminderWindow
 import com.nernal.frame.data.shouldAutoCloseEventAlert
 import com.nernal.frame.data.sortReminders
+import com.nernal.frame.hardware.CameraMotionController
+import com.nernal.frame.hardware.DeviceCapabilitiesDetector
+import com.nernal.frame.hardware.VoiceAndAudioController
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.async
@@ -56,6 +74,7 @@ data class NernalUiState(
     val clockTime: String = "",
     val clockAmPm: String = "",
     val clockDate: String = "",
+    val clockDayDate: String = "",
     val todayKey: String = "",
     val userLocation: UserLocation = UserLocation.DEFAULT,
     val locationSearchResults: List<UserLocation> = emptyList(),
@@ -63,6 +82,8 @@ data class NernalUiState(
     val weather: WeatherData? = null,
     val weatherLoading: Boolean = true,
     val weatherError: String? = null,
+    val weatherCollapsed: Boolean = false,
+    val dismissedAlertKeys: Set<String> = emptySet(),
     val reminders: List<ReminderItem> = emptyList(),
     val hubFilter: HubFilter = HubFilter.ALL,
     val allPhotos: List<AlbumPhoto> = emptyList(),
@@ -87,9 +108,41 @@ data class NernalUiState(
     val showSettingsDialog: Boolean = false,
     val fullscreenMode: Boolean = false,
     val isDimmed: Boolean = false,
+    val isManualNightMode: Boolean = false,
+    val alarmConfig: AlarmConfig = AlarmConfig(),
+    val activeAlarmRinging: Boolean = false,
+    val alarmSnoozeUntilMs: Long? = null,
     val showRadarModal: Boolean = false,
     val radarData: RadarData? = null,
     val radarLoading: Boolean = false,
+    // Optional Raspberry Pi Two-Way Sync
+    val piSyncEnabled: Boolean = BuildConfig.DEFAULT_PI_SYNC_ENABLED,
+    val showPiSyncDialog: Boolean = false,
+    val piBaseUrl: String = FramePrefs.DEFAULT_PI_URL,
+    val activePiUrl: String? = null,
+    val piConnection: PiConnectionState = PiConnectionState.STANDALONE,
+    val lastPiSyncMs: Long = 0L,
+    // Hardware Capabilities, Camera Motion Wake, Audio & Gemini Voice
+    val capabilities: DeviceCapabilities = DeviceCapabilities(),
+    val cameraMotionWakeEnabled: Boolean = true,
+    val motionDetected: Boolean = false,
+    val cameraError: String? = null,
+    val autoSleepMinutes: Int = FramePrefs.DEFAULT_AUTO_SLEEP_MINUTES,
+    val audibleEventAlertsEnabled: Boolean = true,
+    val geminiApiKey: String = "",
+    val geminiKeyLanUrl: String? = null,
+    val geminiKeyCandidates: List<GeminiKeyCandidate> = emptyList(),
+    val geminiKeyScanNotice: String? = null,
+    val voiceState: VoiceAssistantState = VoiceAssistantState.IDLE,
+    val voiceUserTranscript: String = "",
+    val voiceAssistantTranscript: String = "",
+    val voiceError: String? = null,
+    val isFollowUpListening: Boolean = false,
+    val quickAnswerCard: QuickAnswerCardData? = null,
+    val memoryEntries: List<MemoryEntry> = emptyList(),
+    val showMemoryDialog: Boolean = false,
+    val needsAudioPermissionPrompt: Boolean = false,
+    val needsCameraPermissionPrompt: Boolean = false,
     // Google OAuth & Sources
     val showAccountDialog: Boolean = false,
     val authState: GoogleAuthState = GoogleAuthState.NOT_SIGNED_IN,
@@ -146,42 +199,80 @@ data class NernalUiState(
 
     val isAllYearsSelected: Boolean
         get() = isAllYearsMode || (availableYears.isNotEmpty() && selectedPhotoYears.size == availableYears.size && selectedPhotoYears.containsAll(availableYears))
+
+    val activeWeatherAlerts: List<WeatherAlert>
+        get() = weather?.alerts.orEmpty().filterNot { it.alertKey() in dismissedAlertKeys }
+
+    val showFirstSetupShortcuts: Boolean
+        get() = authState != GoogleAuthState.SIGNED_IN && customSharedAlbumUrls.isEmpty() && !piSyncEnabled
 }
 
 class NernalViewModel(application: Application) : AndroidViewModel(application) {
     private val prefs = FramePrefs(application)
     private val repo = NernalRepository(application.cacheDir)
     private val authManager = GoogleAuthManager(prefs, repo.httpClient)
+    private val geminiClient = GeminiAssistantClient(repo.httpClient)
 
     private val _uiState = MutableStateFlow(NernalUiState())
     val uiState: StateFlow<NernalUiState> = _uiState.asStateFlow()
 
     private val syncMutex = Mutex()
+    private val piSyncMutex = Mutex()
     private var libraryPool: List<AlbumPhoto> = emptyList()
     private var lastManualNavMs: Long = 0L
     private var lastPhotosRefreshMs: Long = 0L
+    private var lastUserActivityMs: Long = System.currentTimeMillis()
     private var pickerPollJob: Job? = null
     private var photoLoadJob: Job? = null
     private var undoDeleteJob: Job? = null
+    private var voiceJob: Job? = null
+    private var alarmChimeJob: Job? = null
+    private var alarmSnoozeJob: Job? = null
+    private var lastFiredAlarmKey: String? = null
     private var pendingUndoDeleteItem: ReminderItem? = null
     private var consecutivePhotoFailures = 0
 
+    private var cameraController: CameraMotionController? = null
+    private var voiceController: VoiceAndAudioController? = null
+    private val conversationHistory = mutableListOf<ConversationTurn>()
+    private var voiceSessionCancelled = false
+
     init {
+        val detectedCapabilities = DeviceCapabilitiesDetector.detect(application)
         val savedLocation = prefs.loadUserLocation()
         val tokens = prefs.loadGoogleTokens()
         val profile = prefs.loadAccountProfile()
         val remOps = prefs.loadPendingReminderOps()
+        val favOps = prefs.loadPendingFavOps()
+        val piSyncEnabled = prefs.loadPiSyncEnabled()
         val initialAuthState = if (tokens != null) GoogleAuthState.SIGNED_IN else GoogleAuthState.NOT_SIGNED_IN
         val savedYears = prefs.loadPhotoYearFilters()
         val isAllYears = savedYears == null
         val selTaskLists = prefs.loadSelectedTaskListIds()
         val savedActiveTaskListFilters = prefs.loadActiveTaskListFilters() ?: selTaskLists
+        val cameraWakePref = prefs.loadCameraMotionWakeEnabled()
+        val autoSleepPref = prefs.loadAutoSleepMinutes()
+        val audibleAlertsPref = prefs.loadAudibleEventAlertsEnabled()
+        val savedGeminiKey = prefs.loadGeminiApiKey()
+        val localMemories = prefs.loadLocalMemoryEntries()
 
         _uiState.update {
             it.copy(
                 userLocation = savedLocation ?: UserLocation.DEFAULT,
+                weatherCollapsed = prefs.loadWeatherCollapsed(),
+                dismissedAlertKeys = prefs.loadDismissedAlertKeys(),
+                alarmConfig = prefs.loadAlarmConfig(),
                 reminders = sortReminders(prefs.loadReminders()),
                 starredIds = prefs.loadStarredIds(),
+                piSyncEnabled = piSyncEnabled,
+                piBaseUrl = prefs.loadPiBaseUrl(),
+                piConnection = if (piSyncEnabled) PiConnectionState.CHECKING else PiConnectionState.STANDALONE,
+                capabilities = detectedCapabilities,
+                cameraMotionWakeEnabled = cameraWakePref,
+                autoSleepMinutes = autoSleepPref,
+                audibleEventAlertsEnabled = audibleAlertsPref,
+                geminiApiKey = savedGeminiKey,
+                memoryEntries = localMemories,
                 slideIntervalSec = prefs.loadSlideIntervalSec(),
                 selectedPhotoYears = savedYears ?: emptySet(),
                 isAllYearsMode = isAllYears,
@@ -195,7 +286,7 @@ class NernalViewModel(application: Application) : AndroidViewModel(application) 
                 selectedTaskListIds = selTaskLists,
                 activeTaskListFilters = savedActiveTaskListFilters,
                 customSharedAlbumUrls = prefs.loadCustomSharedAlbumUrls(),
-                pendingSyncCount = remOps.size,
+                pendingSyncCount = remOps.size + if (piSyncEnabled) favOps.size else 0,
                 wakeOnEventReminder = prefs.loadWakeOnEventReminder(),
                 globalBrightness = prefs.loadGlobalBrightness(),
                 calendarViewMode = prefs.loadCalendarViewMode(),
@@ -203,21 +294,568 @@ class NernalViewModel(application: Application) : AndroidViewModel(application) 
                 hubFilter = if (prefs.loadCalendarPrimaryMode()) HubFilter.EVENTS else HubFilter.ALL,
             )
         }
+
+        setupHardwareControllers(application, detectedCapabilities)
         updateClock()
 
         startClockLoop()
         startWeatherLoop()
         startInitialLoadAndSyncLoops()
         startSlideshowLoop()
-        startUpdateCheckLoop()
+        startIdleSleepLoop()
+        if (!BuildConfig.IS_NERNAL_FAMILY_BUILD) {
+            startUpdateCheckLoop()
+        }
     }
 
     override fun onCleared() {
         super.onCleared()
         authManager.stopAuthServer()
+        authManager.stopGeminiKeyServer()
         pickerPollJob?.cancel()
         photoLoadJob?.cancel()
         undoDeleteJob?.cancel()
+        voiceJob?.cancel()
+        alarmChimeJob?.cancel()
+        alarmSnoozeJob?.cancel()
+        cameraController?.release()
+        voiceController?.release()
+    }
+
+    private fun setupHardwareControllers(
+        application: Application,
+        capabilities: DeviceCapabilities,
+    ) {
+        if (capabilities.hasCamera) {
+            cameraController = CameraMotionController(
+                context = application,
+                cameraId = capabilities.preferredCameraId,
+                onMotionSample = { detected ->
+                    if (detected) {
+                        lastUserActivityMs = System.currentTimeMillis()
+                    }
+                    _uiState.update { s ->
+                        if (s.motionDetected == detected) s else s.copy(motionDetected = detected)
+                    }
+                    if (detected && _uiState.value.isDimmed && !_uiState.value.isManualNightMode && _uiState.value.cameraMotionWakeEnabled) {
+                        viewModelScope.launch(Dispatchers.Main) { setDimmed(false) }
+                    }
+                },
+                onStatusError = { err ->
+                    _uiState.update { it.copy(cameraError = err) }
+                },
+            ).also { ctrl ->
+                if (_uiState.value.cameraMotionWakeEnabled && ctrl.hasPermission()) {
+                    ctrl.setMotionWakeEnabled(true)
+                }
+            }
+        }
+
+        if (capabilities.hasAudioOutput || capabilities.hasMicrophone) {
+            voiceController = VoiceAndAudioController(
+                context = application,
+                onPartialTranscript = { partial ->
+                    _uiState.update { it.copy(voiceUserTranscript = partial, voiceError = null) }
+                },
+                onFinalTranscript = { finalText ->
+                    handleFinalVoiceTranscript(finalText)
+                },
+                onSpeechError = { errMsg ->
+                    val wasFollowUp = _uiState.value.isFollowUpListening
+                    if (wasFollowUp && (errMsg == "Didn't catch that." || errMsg == "No speech detected.")) {
+                        closeVoiceSession()
+                    } else {
+                        _uiState.update {
+                            it.copy(
+                                voiceState = VoiceAssistantState.IDLE,
+                                isFollowUpListening = false,
+                                voiceError = errMsg,
+                            )
+                        }
+                    }
+                },
+                onSpeakingStarted = {
+                    _uiState.update { it.copy(voiceState = VoiceAssistantState.SPEAKING) }
+                },
+                onSpeakingFinished = {
+                    if (_uiState.value.voiceState == VoiceAssistantState.SPEAKING) {
+                        _uiState.update { it.copy(voiceState = VoiceAssistantState.IDLE) }
+                    }
+                },
+            )
+        }
+    }
+
+    fun touchUserActivity() {
+        lastUserActivityMs = System.currentTimeMillis()
+    }
+
+    fun onForegroundChanged(active: Boolean) {
+        cameraController?.setForegroundActive(active)
+        if (active) touchUserActivity()
+    }
+
+    fun onPermissionsUpdated() {
+        val ctrl = cameraController
+        if (ctrl != null && _uiState.value.cameraMotionWakeEnabled && ctrl.hasPermission()) {
+            ctrl.setMotionWakeEnabled(true)
+            _uiState.update { it.copy(cameraError = null, needsCameraPermissionPrompt = false) }
+        }
+        if (voiceController?.hasRecordAudioPermission() == true) {
+            val pendingAudioPrompt = _uiState.value.needsAudioPermissionPrompt
+            _uiState.update { it.copy(needsAudioPermissionPrompt = false) }
+            if (pendingAudioPrompt) {
+                startVoiceListening(isFollowUp = false)
+            }
+        }
+    }
+
+    fun clearPermissionPrompts() {
+        _uiState.update { it.copy(needsAudioPermissionPrompt = false, needsCameraPermissionPrompt = false) }
+    }
+
+    fun setCameraMotionWakeEnabled(enabled: Boolean) {
+        prefs.saveCameraMotionWakeEnabled(enabled)
+        _uiState.update { it.copy(cameraMotionWakeEnabled = enabled) }
+        val ctrl = cameraController ?: return
+        if (enabled && !ctrl.hasPermission()) {
+            _uiState.update { it.copy(needsCameraPermissionPrompt = true) }
+            return
+        }
+        ctrl.setMotionWakeEnabled(enabled)
+    }
+
+    fun setAutoSleepMinutes(minutes: Int) {
+        val clamped = minutes.coerceIn(0, 60)
+        prefs.saveAutoSleepMinutes(clamped)
+        touchUserActivity()
+        _uiState.update { it.copy(autoSleepMinutes = clamped) }
+    }
+
+    fun setAudibleEventAlertsEnabled(enabled: Boolean) {
+        prefs.saveAudibleEventAlertsEnabled(enabled)
+        _uiState.update { it.copy(audibleEventAlertsEnabled = enabled) }
+    }
+
+    fun saveGeminiApiKey(apiKey: String) {
+        val clean = apiKey.trim()
+        prefs.saveGeminiApiKey(clean)
+        authManager.stopGeminiKeyServer()
+        _uiState.update {
+            it.copy(
+                geminiApiKey = clean,
+                geminiKeyLanUrl = null,
+                geminiKeyCandidates = emptyList(),
+                geminiKeyScanNotice = if (clean.isNotEmpty()) {
+                    "Gemini API key saved — Super ${BuildConfig.APP_DISPLAY_NAME} unlocked"
+                } else {
+                    "Gemini API key cleared — using on-device speech"
+                },
+                syncNotice = if (clean.isNotEmpty()) {
+                    "Gemini API key saved — Super ${BuildConfig.APP_DISPLAY_NAME} unlocked"
+                } else {
+                    "Gemini API key cleared — using on-device speech"
+                },
+            )
+        }
+    }
+
+    fun startGeminiKeyLanReceiver() {
+        authManager.startGeminiKeyServer(viewModelScope) { receivedKey ->
+            viewModelScope.launch(Dispatchers.Main) {
+                saveGeminiApiKey(receivedKey)
+            }
+        }.onSuccess { url ->
+            _uiState.update {
+                it.copy(
+                    geminiKeyLanUrl = url,
+                    geminiKeyScanNotice = "Open $url on your phone or laptop on the same Wi-Fi to paste your key.",
+                )
+            }
+        }.onFailure { err ->
+            _uiState.update {
+                it.copy(
+                    geminiKeyLanUrl = null,
+                    geminiKeyScanNotice = err.message ?: "Unable to start local Wi-Fi receiver",
+                )
+            }
+        }
+    }
+
+    fun stopGeminiKeyLanReceiver() {
+        authManager.stopGeminiKeyServer()
+        _uiState.update { it.copy(geminiKeyLanUrl = null) }
+    }
+
+    fun scanTasksForGeminiKeys() {
+        viewModelScope.launch {
+            if (_uiState.value.authState == GoogleAuthState.SIGNED_IN) {
+                syncGoogleData(includePhotos = false)
+            }
+            val candidates = NernalRepository.extractGeminiKeyCandidates(_uiState.value.reminders)
+            _uiState.update {
+                it.copy(
+                    geminiKeyCandidates = candidates,
+                    geminiKeyScanNotice = if (candidates.isEmpty()) {
+                        "No Gemini API key (AIza...) found in your Google Tasks. Add one as a task title or note, then tap Scan again."
+                    } else {
+                        "Found ${candidates.size} key candidate${if (candidates.size == 1) "" else "s"} — tap Use Key below to import."
+                    },
+                )
+            }
+        }
+    }
+
+    fun importGeminiKeyCandidate(candidate: GeminiKeyCandidate, deleteTaskAfterImport: Boolean = true) {
+        saveGeminiApiKey(candidate.apiKey)
+        if (deleteTaskAfterImport) {
+            deleteReminder(candidate.taskId)
+        }
+    }
+
+    fun testAudioChimeAndVoice() {
+        val vc = voiceController ?: return
+        vc.playChime()
+        vc.speak("${BuildConfig.APP_DISPLAY_NAME} audio alerts are ready.")
+    }
+
+    fun speakAloud(text: String) {
+        val vc = voiceController ?: return
+        if (!_uiState.value.capabilities.hasAudioOutput) return
+        touchUserActivity()
+        _uiState.update {
+            it.copy(
+                voiceState = VoiceAssistantState.SPEAKING,
+                voiceAssistantTranscript = text,
+                voiceError = null,
+            )
+        }
+        vc.speak(text) {
+            _uiState.update { it.copy(voiceState = VoiceAssistantState.IDLE) }
+        }
+    }
+
+    fun onSpeakButtonClicked() {
+        touchUserActivity()
+        val state = _uiState.value
+        if (!state.capabilities.hasVoiceInputAndOutput) return
+        if (state.voiceState != VoiceAssistantState.IDLE) {
+            closeVoiceSession()
+            return
+        }
+        val vc = voiceController ?: return
+        if (!vc.hasRecordAudioPermission()) {
+            _uiState.update { it.copy(needsAudioPermissionPrompt = true) }
+            return
+        }
+        conversationHistory.clear()
+        startVoiceListening(isFollowUp = false)
+    }
+
+    private fun startVoiceListening(isFollowUp: Boolean) {
+        val vc = voiceController ?: return
+        voiceSessionCancelled = false
+        _uiState.update {
+            it.copy(
+                voiceState = VoiceAssistantState.LISTENING,
+                isFollowUpListening = isFollowUp,
+                voiceUserTranscript = "",
+                voiceAssistantTranscript = if (isFollowUp) it.voiceAssistantTranscript else "",
+                voiceError = null,
+            )
+        }
+        vc.startListening()
+    }
+
+    fun closeVoiceSession() {
+        voiceSessionCancelled = true
+        voiceJob?.cancel()
+        voiceController?.stopListening()
+        voiceController?.stopSpeaking()
+        conversationHistory.clear()
+        _uiState.update {
+            it.copy(
+                voiceState = VoiceAssistantState.IDLE,
+                isFollowUpListening = false,
+                voiceUserTranscript = "",
+                voiceAssistantTranscript = "",
+                voiceError = null,
+            )
+        }
+    }
+
+    fun dismissQuickAnswerCard() {
+        _uiState.update { it.copy(quickAnswerCard = null) }
+    }
+
+    fun setShowMemoryDialog(show: Boolean) {
+        touchUserActivity()
+        _uiState.update { it.copy(showMemoryDialog = show) }
+    }
+
+    fun deleteLocalMemoryEntry(id: String) {
+        val remaining = prefs.loadLocalMemoryEntries().filterNot { it.id == id }
+        prefs.saveLocalMemoryEntries(remaining)
+        val merged = mergeMemoryEntries(remaining, _uiState.value.memoryEntries.filter { it.fromPi })
+        _uiState.update { it.copy(memoryEntries = merged) }
+    }
+
+    private fun currentVoiceContextSnapshot(): VoiceContextSnapshot {
+        val state = _uiState.value
+        return VoiceContextSnapshot(
+            clockTime = state.clockTime,
+            clockAmPm = state.clockAmPm,
+            clockDate = state.clockDate,
+            todayKey = state.todayKey,
+            locationName = state.userLocation.name,
+            weather = state.weather,
+            reminders = state.reminders,
+            isFullscreen = state.fullscreenMode,
+            isCalendarPrimary = state.calendarPrimaryMode,
+            showRadarModal = state.showRadarModal,
+        )
+    }
+
+    fun updateAlarmConfig(config: AlarmConfig) {
+        val normalized = config.copy(
+            hour24 = config.hour24.coerceIn(0, 23),
+            minute = config.minute.coerceIn(0, 59),
+            daysOfWeek = config.daysOfWeek.ifEmpty { setOf(1, 2, 3, 4, 5, 6, 7) },
+        )
+        val prev = _uiState.value.alarmConfig
+        if (prev.hour24 != normalized.hour24 || prev.minute != normalized.minute || !normalized.enabled) {
+            lastFiredAlarmKey = null
+        }
+        prefs.saveAlarmConfig(normalized)
+        _uiState.update { it.copy(alarmConfig = normalized) }
+    }
+
+    fun triggerAlarmNow(isTest: Boolean = false) {
+        touchUserActivity()
+        setDimmed(false)
+        alarmChimeJob?.cancel()
+        alarmSnoozeJob?.cancel()
+        _uiState.update { it.copy(activeAlarmRinging = true, alarmSnoozeUntilMs = null) }
+
+        val config = _uiState.value.alarmConfig
+        if (config.speakBriefTiming == AlarmBriefTiming.AT_ALARM) {
+            val brief = OnDeviceVoiceEngine.handleCommand("Give me my morning briefing", currentVoiceContextSnapshot())
+            _uiState.update { it.copy(quickAnswerCard = brief.card ?: it.quickAnswerCard) }
+            if (_uiState.value.capabilities.hasAudioOutput) {
+                voiceController?.playChime()
+                speakAloud(brief.spokenText)
+            }
+        } else if (_uiState.value.capabilities.hasAudioOutput) {
+            alarmChimeJob = viewModelScope.launch {
+                val maxRepeats = if (isTest) 6 else 115
+                repeat(maxRepeats) {
+                    if (!_uiState.value.activeAlarmRinging) return@launch
+                    voiceController?.playChime()
+                    delay(2_600L)
+                }
+            }
+        }
+    }
+
+    fun dismissActiveAlarm() {
+        touchUserActivity()
+        alarmChimeJob?.cancel()
+        alarmSnoozeJob?.cancel()
+        val timing = _uiState.value.alarmConfig.speakBriefTiming
+        _uiState.update { it.copy(activeAlarmRinging = false, alarmSnoozeUntilMs = null) }
+        if (timing == AlarmBriefTiming.ON_DISMISS) {
+            val brief = OnDeviceVoiceEngine.handleCommand("Give me my morning briefing", currentVoiceContextSnapshot())
+            _uiState.update { it.copy(quickAnswerCard = brief.card ?: it.quickAnswerCard) }
+            if (_uiState.value.capabilities.hasAudioOutput) {
+                speakAloud(brief.spokenText)
+            }
+        }
+    }
+
+    fun snoozeActiveAlarm(minutes: Int = 5) {
+        touchUserActivity()
+        alarmChimeJob?.cancel()
+        alarmSnoozeJob?.cancel()
+        voiceController?.stopSpeaking()
+        val untilMs = System.currentTimeMillis() + minutes * 60_000L
+        _uiState.update { it.copy(activeAlarmRinging = false, alarmSnoozeUntilMs = untilMs) }
+        alarmSnoozeJob = viewModelScope.launch {
+            delay(minutes * 60_000L)
+            triggerAlarmNow()
+        }
+    }
+
+    private fun handleFinalVoiceTranscript(transcript: String) {
+        if (voiceSessionCancelled) return
+        touchUserActivity()
+        val snapshot = currentVoiceContextSnapshot()
+
+        voiceJob?.cancel()
+        voiceJob = viewModelScope.launch {
+            _uiState.update {
+                it.copy(
+                    voiceState = VoiceAssistantState.THINKING,
+                    voiceUserTranscript = transcript,
+                    isFollowUpListening = false,
+                    voiceError = null,
+                )
+            }
+
+            val apiKey = _uiState.value.geminiApiKey
+            val result = if (apiKey.isNotBlank()) {
+                val imageB64 = if (_uiState.value.capabilities.hasCamera &&
+                    GeminiAssistantClient.looksLikeVisionQuestion(transcript)
+                ) {
+                    cameraController?.captureSnapshotBase64()
+                } else {
+                    null
+                }
+                val geminiRes = geminiClient.ask(
+                    apiKey = apiKey,
+                    userText = transcript,
+                    ctx = snapshot,
+                    memoryEntries = _uiState.value.memoryEntries,
+                    history = conversationHistory.toList(),
+                    imageBase64Jpeg = imageB64,
+                )
+                geminiRes.fold(
+                    onSuccess = { resp ->
+                        conversationHistory.add(ConversationTurn("user", transcript))
+                        conversationHistory.add(ConversationTurn("model", resp.spokenText))
+                        com.nernal.frame.data.VoiceTurnResult(
+                            spokenText = resp.spokenText,
+                            card = resp.displayCard,
+                            actions = resp.actions,
+                            shouldEndConversation = resp.shouldEndConversation,
+                        )
+                    },
+                    onFailure = { err ->
+                        val fallback = OnDeviceVoiceEngine.handleCommand(transcript, snapshot)
+                        _uiState.update { it.copy(voiceError = "Gemini unavailable (${err.message}); used on-device voice") }
+                        fallback
+                    },
+                )
+            } else {
+                OnDeviceVoiceEngine.handleCommand(transcript, snapshot)
+            }
+
+            if (voiceSessionCancelled) return@launch
+
+            executeVoiceActions(result.actions)
+            _uiState.update {
+                it.copy(
+                    voiceState = VoiceAssistantState.SPEAKING,
+                    voiceAssistantTranscript = result.spokenText,
+                    quickAnswerCard = result.card ?: it.quickAnswerCard,
+                )
+            }
+
+            val vc = voiceController
+            if (vc != null && _uiState.value.capabilities.hasAudioOutput) {
+                vc.speak(result.spokenText) {
+                    if (voiceSessionCancelled) return@speak
+                    if (result.shouldEndConversation) {
+                        closeVoiceSession()
+                    } else if (_uiState.value.capabilities.hasOnDeviceSpeech) {
+                        startVoiceListening(isFollowUp = true)
+                    } else {
+                        _uiState.update { it.copy(voiceState = VoiceAssistantState.IDLE) }
+                    }
+                }
+            } else {
+                _uiState.update { it.copy(voiceState = VoiceAssistantState.IDLE) }
+            }
+        }
+    }
+
+    private fun executeVoiceActions(actions: List<VoiceAction>) {
+        for (action in actions) {
+            when (action) {
+                is VoiceAction.AddReminder -> addReminder(
+                    text = action.text,
+                    category = action.category,
+                    explicitDateKey = action.dateKey,
+                    explicitTime = action.time,
+                )
+                is VoiceAction.CompleteReminder -> {
+                    val q = action.query.lowercase(Locale.US)
+                    val match = _uiState.value.reminders.firstOrNull {
+                        !it.completed && it.text.lowercase(Locale.US).contains(q)
+                    }
+                    if (match != null) toggleReminder(match.id)
+                }
+                is VoiceAction.DeleteReminder -> {
+                    val q = action.query.lowercase(Locale.US)
+                    val match = _uiState.value.reminders.firstOrNull {
+                        it.text.lowercase(Locale.US).contains(q)
+                    }
+                    if (match != null) deleteReminder(match.id)
+                }
+                is VoiceAction.SaveMemory -> {
+                    val existingLocal = prefs.loadLocalMemoryEntries().toMutableList()
+                    val entry = MemoryEntry(
+                        id = "local-${UUID.randomUUID()}",
+                        notebook = action.notebook,
+                        title = action.title,
+                        summary = action.summary,
+                        content = action.content,
+                        updatedAtMs = System.currentTimeMillis(),
+                        fromPi = false,
+                    )
+                    existingLocal.removeAll {
+                        it.title.equals(action.title, ignoreCase = true) &&
+                            it.notebook.equals(action.notebook, ignoreCase = true)
+                    }
+                    existingLocal.add(0, entry)
+                    prefs.saveLocalMemoryEntries(existingLocal)
+                    val merged = mergeMemoryEntries(existingLocal, _uiState.value.memoryEntries.filter { it.fromPi })
+                    _uiState.update {
+                        it.copy(
+                            memoryEntries = merged,
+                            syncNotice = "Saved \"${action.title}\" to ${action.notebook}",
+                        )
+                    }
+                }
+                is VoiceAction.DashboardCommand -> when (action.command) {
+                    "open_radar" -> openRadarModal()
+                    "close_radar" -> closeRadarModal()
+                    "next_photo" -> nextPhoto()
+                    "previous_photo" -> previousPhoto()
+                    "star_photo" -> toggleCurrentStarred()
+                    "fullscreen_photos" -> setFullscreen(true)
+                    "exit_fullscreen" -> setFullscreen(false)
+                    "show_calendar_primary" -> setCalendarPrimaryMode(true)
+                    "show_photos" -> setCalendarPrimaryMode(false)
+                    "dim_screen" -> setDimmed(true)
+                    "wake_screen" -> setDimmed(false)
+                }
+                VoiceAction.EndConversation -> Unit
+            }
+        }
+    }
+
+    private fun mergeMemoryEntries(local: List<MemoryEntry>, pi: List<MemoryEntry>): List<MemoryEntry> =
+        (local + pi)
+            .distinctBy { it.id }
+            .sortedByDescending { it.updatedAtMs }
+
+    private fun startIdleSleepLoop() {
+        viewModelScope.launch {
+            while (isActive) {
+                delay(15_000L)
+                val s = _uiState.value
+                val mins = s.autoSleepMinutes
+                if (mins <= 0 || s.isDimmed) continue
+                if (s.voiceState != VoiceAssistantState.IDLE) continue
+                if (s.showSettingsDialog || s.showAccountDialog || s.showHelpDialog ||
+                    s.showFeedbackDialog || s.showRadarModal || s.showPiSyncDialog || s.showMemoryDialog
+                ) continue
+                val elapsedMs = System.currentTimeMillis() - lastUserActivityMs
+                if (elapsedMs >= mins * 60_000L) {
+                    setDimmed(true)
+                }
+            }
+        }
     }
 
     private fun currentZoneId(): ZoneId =
@@ -246,19 +884,35 @@ class NernalViewModel(application: Application) : AndroidViewModel(application) 
         val timeStr = TIME_FMT.format(now)
         val amPmStr = AMPM_FMT.format(now).uppercase(Locale.US)
         val dateStr = DATE_FMT.format(now)
+        val dayDateStr = DAY_DATE_FMT.format(now)
         val todayStr = DATE_KEY_FMT.format(now)
         val cur = _uiState.value
-        if (cur.clockTime != timeStr || cur.clockAmPm != amPmStr || cur.clockDate != dateStr || cur.todayKey != todayStr) {
+        if (cur.clockTime != timeStr || cur.clockAmPm != amPmStr || cur.clockDate != dateStr ||
+            cur.clockDayDate != dayDateStr || cur.todayKey != todayStr
+        ) {
             _uiState.update {
                 it.copy(
                     clockTime = timeStr,
                     clockAmPm = amPmStr,
                     clockDate = dateStr,
+                    clockDayDate = dayDateStr,
                     todayKey = todayStr,
                 )
             }
         }
         checkUpcomingEventReminders(now)
+        val alarm = _uiState.value.alarmConfig
+        if (alarm.enabled &&
+            now.hour == alarm.hour24 &&
+            now.minute == alarm.minute &&
+            now.dayOfWeek.value in alarm.daysOfWeek
+        ) {
+            val fireKey = "$todayStr@${alarm.hour24}:${alarm.minute}"
+            if (lastFiredAlarmKey != fireKey) {
+                lastFiredAlarmKey = fireKey
+                triggerAlarmNow()
+            }
+        }
     }
 
     private fun checkUpcomingEventReminders(now: ZonedDateTime = ZonedDateTime.now(currentZoneId())) {
@@ -288,8 +942,13 @@ class NernalViewModel(application: Application) : AndroidViewModel(application) 
         if (upcomingEvent != null) {
             alertedEventKeys.add("${upcomingEvent.id}@${upcomingEvent.dateKey}")
             _uiState.update { it.copy(activeEventAlert = upcomingEvent) }
-            if (_uiState.value.isDimmed) {
+            if (_uiState.value.isDimmed && !_uiState.value.isManualNightMode) {
                 setDimmed(false)
+            }
+            if (state.capabilities.hasAudioOutput && state.audibleEventAlertsEnabled && !_uiState.value.isManualNightMode) {
+                voiceController?.playChime()
+                val timePart = upcomingEvent.time?.takeIf { it.isNotBlank() }?.let { " at $it" }.orEmpty()
+                voiceController?.speak("Upcoming event$timePart: ${upcomingEvent.text}")
             }
         }
     }
@@ -309,8 +968,18 @@ class NernalViewModel(application: Application) : AndroidViewModel(application) 
             _uiState.update { it.copy(weatherLoading = true, weatherError = null) }
             repo.fetchWeather(location)
                 .onSuccess { data ->
+                    val currentAlertKeys = data.alerts.map { it.alertKey() }.toSet()
+                    val prunedDismissed = _uiState.value.dismissedAlertKeys.intersect(currentAlertKeys)
+                    if (prunedDismissed != _uiState.value.dismissedAlertKeys) {
+                        prefs.saveDismissedAlertKeys(prunedDismissed)
+                    }
                     _uiState.update {
-                        it.copy(weather = data, weatherLoading = false, weatherError = null)
+                        it.copy(
+                            weather = data,
+                            weatherLoading = false,
+                            weatherError = null,
+                            dismissedAlertKeys = prunedDismissed,
+                        )
                     }
                 }
                 .onFailure { err ->
@@ -377,6 +1046,157 @@ class NernalViewModel(application: Application) : AndroidViewModel(application) 
     }
 
     // -------------------------------------------------------------------------
+    // Raspberry Pi Two-Way Sync (Optional Home Hub)
+    // -------------------------------------------------------------------------
+
+    fun setPiSyncEnabled(enabled: Boolean) {
+        prefs.savePiSyncEnabled(enabled)
+        _uiState.update {
+            it.copy(
+                piSyncEnabled = enabled,
+                piConnection = if (enabled) PiConnectionState.CHECKING else PiConnectionState.STANDALONE,
+                activePiUrl = if (enabled) it.activePiUrl else null,
+            )
+        }
+        if (enabled) {
+            syncWithPiNow()
+        }
+    }
+
+    private suspend fun runPiSyncCycle(includePhotos: Boolean): Boolean = piSyncMutex.withLock {
+        if (!_uiState.value.piSyncEnabled) return@withLock false
+
+        val allRemOps = withContext(Dispatchers.IO) { prefs.loadPendingReminderOps() }
+        val piOps = allRemOps.filter { it.sourceId == null || it.sourceId == NernalRepository.PI_SOURCE_ID }
+        val favOps = withContext(Dispatchers.IO) { prefs.loadPendingFavOps() }
+
+        val outcome = repo.syncWithPi(
+            configuredPiUrl = _uiState.value.piBaseUrl,
+            pendingReminderOps = piOps,
+            pendingFavOps = favOps,
+            includePhotos = includePhotos,
+            includeMemoryBook = true,
+        )
+
+        if (outcome.reachableUrl == null) {
+            _uiState.update {
+                it.copy(
+                    activePiUrl = null,
+                    piConnection = PiConnectionState.STANDALONE,
+                    pendingSyncCount = allRemOps.size + favOps.size,
+                )
+            }
+            return@withLock false
+        }
+
+        val attemptedPiIds = piOps.map { it.opId }.toSet()
+        val latestAllOps = withContext(Dispatchers.IO) { prefs.loadPendingReminderOps() }
+        val preservedOps = latestAllOps.filter { it.opId !in attemptedPiIds }
+        val combinedRemOps = outcome.remainingReminderOps + preservedOps
+
+        withContext(Dispatchers.IO) {
+            prefs.savePendingReminderOps(combinedRemOps)
+            prefs.savePendingFavOps(outcome.remainingFavOps)
+        }
+
+        outcome.reminders?.let { piList ->
+            val nonPiReminders = _uiState.value.reminders.filter {
+                it.sourceId != null && it.sourceId != NernalRepository.PI_SOURCE_ID
+            }
+            val merged = sortReminders(applyUnflushedReminderOps(piList + nonPiReminders, combinedRemOps))
+            withContext(Dispatchers.IO) { prefs.saveReminders(merged) }
+            _uiState.update { s -> s.copy(reminders = merged) }
+            checkUpcomingEventReminders()
+        }
+
+        outcome.starredIds?.let { favs ->
+            withContext(Dispatchers.IO) { prefs.saveStarredIds(favs) }
+            _uiState.update { s -> s.copy(starredIds = favs) }
+        }
+
+        outcome.memoryEntries?.let { piMemories ->
+            val localOnly = withContext(Dispatchers.IO) { prefs.loadLocalMemoryEntries() }
+            val mergedMem = mergeMemoryEntries(localOnly, piMemories)
+            _uiState.update { s -> s.copy(memoryEntries = mergedMem) }
+        }
+
+        if (!outcome.albumPhotos.isNullOrEmpty()) {
+            val total = outcome.albumTotalCount ?: outcome.albumPhotos.size
+            val existingPicked = libraryPool.filter { it.albumUrl == NernalRepository.PICKER_ALBUM_MARKER }
+            if (libraryPool.size < outcome.albumPhotos.size + existingPicked.size) {
+                val mergedPool = (outcome.albumPhotos + existingPicked).distinctBy { it.id }
+                libraryPool = mergedPool
+                withContext(Dispatchers.IO) {
+                    prefs.saveAlbumLibrary(mergedPool, maxOf(total, mergedPool.size))
+                }
+            }
+            applyLibraryPoolToState(totalCount = maxOf(total, libraryPool.size), syncDone = true)
+        }
+
+        _uiState.update {
+            it.copy(
+                activePiUrl = outcome.reachableUrl,
+                piConnection = PiConnectionState.CONNECTED,
+                pendingSyncCount = combinedRemOps.size + outcome.remainingFavOps.size,
+                lastPiSyncMs = System.currentTimeMillis(),
+                syncNotice = null,
+            )
+        }
+        return@withLock true
+    }
+
+    fun syncWithPiNow(customUrlInput: String? = null) {
+        viewModelScope.launch {
+            if (!_uiState.value.piSyncEnabled) {
+                prefs.savePiSyncEnabled(true)
+            }
+            val normalizedUrl = if (customUrlInput != null) {
+                prefs.savePiBaseUrl(customUrlInput)
+            } else {
+                _uiState.value.piBaseUrl
+            }
+            _uiState.update {
+                it.copy(
+                    piSyncEnabled = true,
+                    piBaseUrl = normalizedUrl,
+                    piConnection = PiConnectionState.CHECKING,
+                    syncNotice = "Connecting to Pi...",
+                )
+            }
+            val ok = runPiSyncCycle(includePhotos = true)
+            _uiState.update {
+                it.copy(
+                    syncNotice = if (ok) {
+                        "Synced with Pi at ${it.activePiUrl}"
+                    } else {
+                        "Could not reach $normalizedUrl — queued changes stay saved locally"
+                    }
+                )
+            }
+        }
+    }
+
+    fun rebuildFullPhotoLibrary() {
+        viewModelScope.launch {
+            val connectedPi = _uiState.value.activePiUrl
+            if (connectedPi != null && _uiState.value.piSyncEnabled) {
+                _uiState.update { it.copy(albumsSyncing = true, syncNotice = "Asking Pi to rebuild album index...") }
+                repo.triggerPiAlbumRefresh(connectedPi)
+                delay(4_000L)
+                runPiSyncCycle(includePhotos = true)
+                _uiState.update { it.copy(albumsSyncing = false, syncNotice = "Refreshed library from Pi") }
+            } else {
+                withContext(Dispatchers.IO) { prefs.clearAlbumLibrary() }
+                refreshPhotoAlbumsOnly()
+            }
+        }
+    }
+
+    fun setShowPiSyncDialog(show: Boolean) {
+        _uiState.update { it.copy(showPiSyncDialog = show, syncNotice = if (!show) null else it.syncNotice) }
+    }
+
+    // -------------------------------------------------------------------------
     // Google OAuth 2.0 Sign-In & Config
     // -------------------------------------------------------------------------
 
@@ -396,6 +1216,7 @@ class NernalViewModel(application: Application) : AndroidViewModel(application) 
     fun startGoogleSignIn(openInAppWebView: Boolean = false) {
         val result = authManager.startAuthSession(viewModelScope) { callbackUrl ->
             viewModelScope.launch {
+                bringAppToFront()
                 completeGoogleSignIn(callbackUrl)
             }
         }
@@ -460,6 +1281,7 @@ class NernalViewModel(application: Application) : AndroidViewModel(application) 
                             syncNotice = "Signed in as ${profile.email}",
                         )
                     }
+                    bringAppToFront()
                     refreshGoogleMetadataAndSync(forcePhotoRefresh = true)
                 }
                 .onFailure { err ->
@@ -469,6 +1291,7 @@ class NernalViewModel(application: Application) : AndroidViewModel(application) 
                             authError = err.message ?: "Google sign-in failed",
                         )
                     }
+                    bringAppToFront()
                 }
         }
     }
@@ -480,8 +1303,34 @@ class NernalViewModel(application: Application) : AndroidViewModel(application) 
         undoDeleteJob?.cancel()
         pendingUndoDeleteItem = null
         prefs.clearGoogleAuth()
-        libraryPool = emptyList()
+
+        val keepLocalOrPi = _uiState.value.piSyncEnabled || BuildConfig.IS_NERNAL_FAMILY_BUILD
+        val keptReminders = sortReminders(
+            _uiState.value.reminders.filter {
+                it.sourceId == null || it.sourceId == NernalRepository.PI_SOURCE_ID
+            }
+        )
+        prefs.saveReminders(keptReminders)
+
+        val remainingOps = prefs.loadPendingReminderOps().filter {
+            it.sourceId == null || it.sourceId == NernalRepository.PI_SOURCE_ID
+        }
+        prefs.savePendingReminderOps(remainingOps)
+        val pendingCount = remainingOps.size + if (_uiState.value.piSyncEnabled) prefs.loadPendingFavOps().size else 0
+
+        val remainingPhotos = if (keepLocalOrPi || _uiState.value.customSharedAlbumUrls.isNotEmpty()) {
+            libraryPool.filterNot { it.albumUrl == NernalRepository.PICKER_ALBUM_MARKER }
+        } else {
+            emptyList()
+        }
+        libraryPool = remainingPhotos
+        if (remainingPhotos.isNotEmpty()) {
+            prefs.saveAlbumLibrary(remainingPhotos, remainingPhotos.size)
+        } else {
+            prefs.clearAlbumLibrary()
+        }
         lastPhotosRefreshMs = 0L
+
         _uiState.update {
             it.copy(
                 authState = GoogleAuthState.NOT_SIGNED_IN,
@@ -499,22 +1348,25 @@ class NernalViewModel(application: Application) : AndroidViewModel(application) 
                 photosApiError = null,
                 pickerSessionUri = null,
                 pickerPolling = false,
-                reminders = emptyList(),
-                allPhotos = emptyList(),
-                activePhotos = emptyList(),
-                libraryTotalCount = 0,
-                currentBitmap = null,
+                reminders = keptReminders,
+                allPhotos = if (remainingPhotos.isEmpty()) emptyList() else it.allPhotos,
+                activePhotos = if (remainingPhotos.isEmpty()) emptyList() else it.activePhotos,
+                libraryTotalCount = remainingPhotos.size,
+                currentBitmap = if (remainingPhotos.isEmpty()) null else it.currentBitmap,
                 currentPhotoIndex = 0,
-                pendingSyncCount = 0,
+                pendingSyncCount = pendingCount,
                 recentlyDeletedReminder = null,
                 activeEventAlert = null,
                 syncNotice = "Signed out of Google",
             )
         }
+        if (remainingPhotos.isNotEmpty()) {
+            applyLibraryPoolToState(remainingPhotos.size, syncDone = true)
+        }
     }
 
     // -------------------------------------------------------------------------
-    // Google Sync & Source Selection
+    // Initial Load & Background Sync Loops
     // -------------------------------------------------------------------------
 
     private fun startInitialLoadAndSyncLoops() {
@@ -525,19 +1377,53 @@ class NernalViewModel(application: Application) : AndroidViewModel(application) 
                 applyLibraryPoolToState(cached.totalLibraryCount, syncDone = true)
             }
 
+            // 1. Optional Raspberry Pi two-way sync
+            val syncedPi = if (_uiState.value.piSyncEnabled) {
+                runPiSyncCycle(includePhotos = true)
+            } else {
+                false
+            }
+
+            // 2. Google account sync if signed in
             if (_uiState.value.authState == GoogleAuthState.SIGNED_IN) {
-                // Force fresh photo URLs on startup since Google Photos baseUrl expires after 60m
-                refreshGoogleMetadataAndSync(forcePhotoRefresh = true)
-            } else if (_uiState.value.customSharedAlbumUrls.isNotEmpty() && cached.photos.isEmpty()) {
+                refreshGoogleMetadataAndSync(forcePhotoRefresh = !syncedPi)
+            } else if (!syncedPi && _uiState.value.customSharedAlbumUrls.isNotEmpty() &&
+                (cached.photos.isEmpty() || (BuildConfig.IS_NERNAL_FAMILY_BUILD && cached.photos.size < 400))
+            ) {
                 refreshPhotoAlbumsOnly()
             }
 
+            // 3. Periodic background sync loop
+            var tickCount = 0
             while (isActive) {
-                val interval = if (_uiState.value.isDimmed) GOOGLE_SYNC_DIMMED_INTERVAL_MS else GOOGLE_SYNC_INTERVAL_MS
+                val interval = if (_uiState.value.piSyncEnabled) {
+                    PI_SYNC_INTERVAL_MS
+                } else if (_uiState.value.isDimmed) {
+                    GOOGLE_SYNC_DIMMED_INTERVAL_MS
+                } else {
+                    GOOGLE_SYNC_INTERVAL_MS
+                }
                 delay(interval)
+                tickCount++
+
+                val connectedPi = if (_uiState.value.piSyncEnabled) {
+                    val wasOffline = _uiState.value.activePiUrl == null
+                    val pullPhotosOnTick = wasOffline || (tickCount % 20 == 0)
+                    runPiSyncCycle(includePhotos = pullPhotosOnTick)
+                } else {
+                    false
+                }
+
                 if (_uiState.value.authState == GoogleAuthState.SIGNED_IN) {
-                    val photosExpired = System.currentTimeMillis() - lastPhotosRefreshMs >= PHOTOS_URL_REFRESH_MS
-                    syncGoogleData(includePhotos = photosExpired)
+                    val googleIntervalTicks = when {
+                        !_uiState.value.piSyncEnabled -> 1
+                        _uiState.value.isDimmed -> 6
+                        else -> 2
+                    }
+                    if (tickCount % googleIntervalTicks == 0) {
+                        val photosExpired = System.currentTimeMillis() - lastPhotosRefreshMs >= PHOTOS_URL_REFRESH_MS
+                        syncGoogleData(includePhotos = photosExpired && !connectedPi)
+                    }
                 }
             }
         }
@@ -676,7 +1562,11 @@ class NernalViewModel(application: Application) : AndroidViewModel(application) 
 
         // Re-read pending ops right before merge so local edits queued during fetch aren't clobbered.
         val latestOps = withContext(Dispatchers.IO) { prefs.loadPendingReminderOps() }
-        val mergedReminders = sortReminders(applyUnflushedReminderOps(events + tasks, latestOps))
+        val favOpsCount = if (_uiState.value.piSyncEnabled) withContext(Dispatchers.IO) { prefs.loadPendingFavOps().size } else 0
+        val localOrPiReminders = _uiState.value.reminders.filter {
+            it.sourceId == null || it.sourceId == NernalRepository.PI_SOURCE_ID
+        }
+        val mergedReminders = sortReminders(applyUnflushedReminderOps(localOrPiReminders + events + tasks, latestOps))
         val prevReminders = _uiState.value.reminders
         if (mergedReminders != prevReminders) {
             withContext(Dispatchers.IO) { prefs.saveReminders(mergedReminders) }
@@ -685,7 +1575,7 @@ class NernalViewModel(application: Application) : AndroidViewModel(application) 
         _uiState.update {
             it.copy(
                 reminders = mergedReminders,
-                pendingSyncCount = latestOps.size,
+                pendingSyncCount = latestOps.size + favOpsCount,
                 lastGoogleSyncMs = System.currentTimeMillis(),
                 googleSyncing = false,
             )
@@ -843,7 +1733,7 @@ class NernalViewModel(application: Application) : AndroidViewModel(application) 
         }
         // Auto-complete tasks containing imported photo links in one batch without recursive sync.
         val uniqueToComplete = tasksToComplete.distinctBy { it.id }
-            .filter { !it.sourceId.isNullOrBlank() && !it.remoteId.isNullOrBlank() }
+            .filter { !it.sourceId.isNullOrBlank() && it.sourceId != NernalRepository.PI_SOURCE_ID && !it.remoteId.isNullOrBlank() }
         if (uniqueToComplete.isEmpty()) return false
 
         withContext(Dispatchers.IO) {
@@ -954,8 +1844,11 @@ class NernalViewModel(application: Application) : AndroidViewModel(application) 
 
     fun refreshOrReshufflePhotos() {
         viewModelScope.launch {
+            val connectedPi = if (_uiState.value.piSyncEnabled) _uiState.value.activePiUrl else null
             if (libraryPool.size > ROTATION_WINDOW_SIZE) {
                 applyLibraryPoolToState(_uiState.value.libraryTotalCount.coerceAtLeast(libraryPool.size), syncDone = true)
+            } else if (connectedPi != null) {
+                runPiSyncCycle(includePhotos = true)
             } else {
                 refreshPhotoAlbumsOnly()
             }
@@ -967,8 +1860,8 @@ class NernalViewModel(application: Application) : AndroidViewModel(application) 
             while (isActive) {
                 val state = _uiState.value
                 val paused = !state.autoAdvance || state.isDimmed || state.showRadarModal ||
-                    state.showAccountDialog || state.showSettingsDialog || state.showInAppAuthWebView ||
-                    state.activePhotos.size <= 1
+                    state.showAccountDialog || state.showSettingsDialog || state.showPiSyncDialog ||
+                    state.showMemoryDialog || state.showInAppAuthWebView || state.activePhotos.size <= 1
                 if (paused) {
                     delay(2_500L)
                     continue
@@ -980,8 +1873,8 @@ class NernalViewModel(application: Application) : AndroidViewModel(application) 
 
                 val latest = _uiState.value
                 val stillActive = latest.autoAdvance && !latest.isDimmed && !latest.showRadarModal &&
-                    !latest.showAccountDialog && !latest.showSettingsDialog && !latest.showInAppAuthWebView &&
-                    latest.activePhotos.size > 1
+                    !latest.showAccountDialog && !latest.showSettingsDialog && !latest.showPiSyncDialog &&
+                    !latest.showMemoryDialog && !latest.showInAppAuthWebView && latest.activePhotos.size > 1
                 if (stillActive && System.currentTimeMillis() - lastManualNavMs >= targetMs) {
                     stepPhoto(delta = 1, manual = false)
                 }
@@ -998,6 +1891,7 @@ class NernalViewModel(application: Application) : AndroidViewModel(application) 
         val photos = state.activePhotos
         if (photos.isEmpty()) return
         if (manual) {
+            touchUserActivity()
             tempFullscreenJob?.cancel()
             consecutivePhotoFailures = 0
         }
@@ -1084,10 +1978,11 @@ class NernalViewModel(application: Application) : AndroidViewModel(application) 
     fun toggleCurrentStarred() {
         val current = _uiState.value.currentPhoto ?: return
         tempFullscreenJob?.cancel()
+        var nowStarred = false
         _uiState.update { state ->
             val nextIds = state.starredIds.toMutableSet()
-            val added = nextIds.add(current.id)
-            if (!added) nextIds.remove(current.id)
+            nowStarred = nextIds.add(current.id)
+            if (!nowStarred) nextIds.remove(current.id)
             prefs.saveStarredIds(nextIds)
 
             val nextActive = if (state.favoritesOnly) state.allPhotos.filter { it.id in nextIds } else state.allPhotos
@@ -1100,10 +1995,39 @@ class NernalViewModel(application: Application) : AndroidViewModel(application) 
         if (_uiState.value.favoritesOnly) {
             loadCurrentAndPreloadNext()
         }
+
+        if (_uiState.value.piSyncEnabled) {
+            val favOps = prefs.loadPendingFavOps().filterNot { it.photoId == current.id }.toMutableList()
+            favOps.add(PendingFavOp(current.id, nowStarred))
+            prefs.savePendingFavOps(favOps)
+            _uiState.update { it.copy(pendingSyncCount = prefs.loadPendingReminderOps().size + favOps.size) }
+            viewModelScope.launch { runPiSyncCycle(includePhotos = false) }
+        }
+    }
+
+    fun dismissWeatherAlert(alert: WeatherAlert) {
+        val next = _uiState.value.dismissedAlertKeys + alert.alertKey()
+        prefs.saveDismissedAlertKeys(next)
+        _uiState.update { it.copy(dismissedAlertKeys = next) }
+    }
+
+    fun toggleWeatherCollapsed() {
+        val next = !_uiState.value.weatherCollapsed
+        prefs.saveWeatherCollapsed(next)
+        _uiState.update { it.copy(weatherCollapsed = next) }
     }
 
     fun setShowSettingsDialog(show: Boolean) {
-        _uiState.update { it.copy(showSettingsDialog = show) }
+        if (!show) {
+            authManager.stopGeminiKeyServer()
+        }
+        _uiState.update {
+            it.copy(
+                showSettingsDialog = show,
+                geminiKeyLanUrl = if (show) it.geminiKeyLanUrl else null,
+                geminiKeyScanNotice = if (show) it.geminiKeyScanNotice else null,
+            )
+        }
     }
 
     fun setShowAccountDialog(show: Boolean) {
@@ -1225,7 +2149,9 @@ class NernalViewModel(application: Application) : AndroidViewModel(application) 
     private fun buildDiagnosticLogBundle(state: NernalUiState): String {
         val sb = StringBuilder()
         sb.appendLine("=== App State ===")
-        sb.appendLine("authState=${state.authState}")
+        sb.appendLine("piSync=${state.piSyncEnabled} (${state.piConnection}), authState=${state.authState}")
+        sb.appendLine("capabilities=cam:${state.capabilities.hasCamera},mic:${state.capabilities.hasMicrophone},spk:${state.capabilities.hasAudioOutput},speech:${state.capabilities.hasOnDeviceSpeech}")
+        sb.appendLine("cameraWake=${state.cameraMotionWakeEnabled}, autoSleepMin=${state.autoSleepMinutes}, audibleAlerts=${state.audibleEventAlertsEnabled}, geminiConfigured=${state.geminiApiKey.isNotBlank()}")
         sb.appendLine("location=${state.userLocation.name} (${state.userLocation.timezone})")
         sb.appendLine("calendars=${state.selectedCalendarIds.size}/${state.availableCalendars.size}")
         sb.appendLine("taskLists=${state.selectedTaskListIds.size}/${state.availableTaskLists.size}")
@@ -1352,6 +2278,7 @@ class NernalViewModel(application: Application) : AndroidViewModel(application) 
     }
 
     fun setFullscreen(enabled: Boolean) {
+        touchUserActivity()
         tempFullscreenJob?.cancel()
         lastManualNavMs = System.currentTimeMillis()
         _uiState.update { it.copy(fullscreenMode = enabled) }
@@ -1378,13 +2305,28 @@ class NernalViewModel(application: Application) : AndroidViewModel(application) 
         }
     }
 
-    fun setDimmed(dimmed: Boolean) {
+    fun setNightMode(enabled: Boolean) {
+        setDimmed(dimmed = enabled, manualNight = enabled)
+    }
+
+    fun setDimmed(dimmed: Boolean, manualNight: Boolean = false) {
         val wasDimmed = _uiState.value.isDimmed
-        _uiState.update { it.copy(isDimmed = dimmed) }
-        if (wasDimmed && !dimmed && _uiState.value.authState == GoogleAuthState.SIGNED_IN) {
-            val stale = System.currentTimeMillis() - _uiState.value.lastGoogleSyncMs > GOOGLE_SYNC_INTERVAL_MS
-            if (stale) {
-                viewModelScope.launch { syncGoogleData(includePhotos = false) }
+        if (!dimmed) touchUserActivity()
+        _uiState.update {
+            it.copy(
+                isDimmed = dimmed,
+                isManualNightMode = if (dimmed) manualNight else false,
+            )
+        }
+        if (wasDimmed && !dimmed) {
+            if (_uiState.value.authState == GoogleAuthState.SIGNED_IN) {
+                val stale = System.currentTimeMillis() - _uiState.value.lastGoogleSyncMs > GOOGLE_SYNC_INTERVAL_MS
+                if (stale) {
+                    viewModelScope.launch { syncGoogleData(includePhotos = false) }
+                }
+            }
+            if (_uiState.value.piSyncEnabled && System.currentTimeMillis() - _uiState.value.lastPiSyncMs > PI_SYNC_INTERVAL_MS) {
+                viewModelScope.launch { runPiSyncCycle(includePhotos = false) }
             }
         }
     }
@@ -1408,6 +2350,7 @@ class NernalViewModel(application: Application) : AndroidViewModel(application) 
     // -------------------------------------------------------------------------
 
     fun openRadarModal() {
+        touchUserActivity()
         _uiState.update { it.copy(showRadarModal = true) }
         refreshRadar()
     }
@@ -1420,7 +2363,8 @@ class NernalViewModel(application: Application) : AndroidViewModel(application) 
         viewModelScope.launch {
             _uiState.update { it.copy(radarLoading = true) }
             val loc = _uiState.value.userLocation
-            repo.fetchRadarData(loc.latitude, loc.longitude)
+            val piUrl = if (_uiState.value.piSyncEnabled) _uiState.value.activePiUrl else null
+            repo.fetchRadarData(loc.latitude, loc.longitude, piUrl)
                 .onSuccess { data ->
                     _uiState.update { it.copy(radarData = data, radarLoading = false) }
                 }
@@ -1563,17 +2507,30 @@ class NernalViewModel(application: Application) : AndroidViewModel(application) 
         }
     }
 
-    fun addReminder(text: String, category: ReminderCategory) {
+    fun addReminder(
+        text: String,
+        category: ReminderCategory,
+        explicitDateKey: String? = null,
+        explicitTime: String? = null,
+    ) {
         val cleaned = text.trim()
         if (cleaned.isEmpty()) return
         val today = _uiState.value.todayKey
-        val targetSourceId = resolveTargetSourceId(category)
+        val googleTargetId = if (_uiState.value.authState == GoogleAuthState.SIGNED_IN) {
+            resolveTargetSourceId(category)
+        } else null
+        val useGoogle = googleTargetId != null
+        val usePi = !useGoogle && _uiState.value.piSyncEnabled
+        val targetSourceId = googleTargetId ?: if (usePi) NernalRepository.PI_SOURCE_ID else null
+
         val tempId = "local-${UUID.randomUUID()}"
+        val effectiveDateKey = explicitDateKey ?: if (category == ReminderCategory.EVENT) today else null
         val newItem = ReminderItem(
             id = tempId,
             text = cleaned,
             category = category,
-            dateKey = if (category == ReminderCategory.EVENT) today else null,
+            dateKey = effectiveDateKey,
+            time = explicitTime,
             completed = false,
             createdAtMs = System.currentTimeMillis(),
             sourceId = targetSourceId,
@@ -1588,8 +2545,8 @@ class NernalViewModel(application: Application) : AndroidViewModel(application) 
 
         viewModelScope.launch {
             withContext(Dispatchers.IO) { prefs.saveReminders(snapshotReminders) }
-            if (_uiState.value.authState == GoogleAuthState.SIGNED_IN && targetSourceId != null) {
-                val ops = withContext(Dispatchers.IO) {
+            if (useGoogle || usePi) {
+                val (opsCount, favCount) = withContext(Dispatchers.IO) {
                     val list = prefs.loadPendingReminderOps().toMutableList()
                     list.add(
                         PendingReminderOp(
@@ -1597,6 +2554,7 @@ class NernalViewModel(application: Application) : AndroidViewModel(application) 
                             action = PendingReminderAction.ADD,
                             reminderId = tempId,
                             text = newItem.text,
+                            time = newItem.time,
                             dateKey = newItem.dateKey,
                             category = category,
                             completed = false,
@@ -1604,10 +2562,15 @@ class NernalViewModel(application: Application) : AndroidViewModel(application) 
                         )
                     )
                     prefs.savePendingReminderOps(list)
-                    list
+                    val favs = if (_uiState.value.piSyncEnabled) prefs.loadPendingFavOps().size else 0
+                    list.size to favs
                 }
-                _uiState.update { it.copy(pendingSyncCount = ops.size) }
-                syncGoogleData(includePhotos = false)
+                _uiState.update { it.copy(pendingSyncCount = opsCount + favCount) }
+                if (useGoogle) {
+                    syncGoogleData(includePhotos = false)
+                } else if (usePi) {
+                    runPiSyncCycle(includePhotos = false)
+                }
             }
         }
     }
@@ -1633,16 +2596,45 @@ class NernalViewModel(application: Application) : AndroidViewModel(application) 
         checkUpcomingEventReminders()
 
         val item = targetItem ?: return
+        val isGoogleItem = item.sourceId != null && item.sourceId != NernalRepository.PI_SOURCE_ID
         viewModelScope.launch {
             withContext(Dispatchers.IO) { prefs.saveReminders(snapshotReminders) }
-            // Google Tasks supports completion status; Google Calendar events toggle locally only.
-            if (item.category != ReminderCategory.EVENT && _uiState.value.authState == GoogleAuthState.SIGNED_IN) {
-                val ops = withContext(Dispatchers.IO) {
+            if (isGoogleItem) {
+                // Google Tasks supports completion status; Google Calendar events toggle locally only.
+                if (item.category != ReminderCategory.EVENT && _uiState.value.authState == GoogleAuthState.SIGNED_IN) {
+                    val (opsCount, favCount) = withContext(Dispatchers.IO) {
+                        val list = prefs.loadPendingReminderOps().toMutableList()
+                        val pendingAddIdx = list.indexOfFirst { it.action == PendingReminderAction.ADD && it.reminderId == id }
+                        if (pendingAddIdx >= 0) {
+                            list[pendingAddIdx] = list[pendingAddIdx].copy(completed = newCompleted)
+                        } else if (!item.remoteId.isNullOrBlank()) {
+                            list.removeAll { it.action == PendingReminderAction.UPDATE && it.reminderId == id }
+                            list.add(
+                                PendingReminderOp(
+                                    opId = UUID.randomUUID().toString(),
+                                    action = PendingReminderAction.UPDATE,
+                                    reminderId = id,
+                                    category = item.category,
+                                    completed = newCompleted,
+                                    sourceId = item.sourceId,
+                                    remoteId = item.remoteId,
+                                )
+                            )
+                        }
+                        prefs.savePendingReminderOps(list)
+                        val favs = if (_uiState.value.piSyncEnabled) prefs.loadPendingFavOps().size else 0
+                        list.size to favs
+                    }
+                    _uiState.update { it.copy(pendingSyncCount = opsCount + favCount) }
+                    syncGoogleData(includePhotos = false)
+                }
+            } else if (_uiState.value.piSyncEnabled) {
+                val (opsCount, favCount) = withContext(Dispatchers.IO) {
                     val list = prefs.loadPendingReminderOps().toMutableList()
                     val pendingAddIdx = list.indexOfFirst { it.action == PendingReminderAction.ADD && it.reminderId == id }
                     if (pendingAddIdx >= 0) {
                         list[pendingAddIdx] = list[pendingAddIdx].copy(completed = newCompleted)
-                    } else if (!item.sourceId.isNullOrBlank() && !item.remoteId.isNullOrBlank()) {
+                    } else {
                         list.removeAll { it.action == PendingReminderAction.UPDATE && it.reminderId == id }
                         list.add(
                             PendingReminderOp(
@@ -1651,16 +2643,16 @@ class NernalViewModel(application: Application) : AndroidViewModel(application) 
                                 reminderId = id,
                                 category = item.category,
                                 completed = newCompleted,
-                                sourceId = item.sourceId,
+                                sourceId = NernalRepository.PI_SOURCE_ID,
                                 remoteId = item.remoteId,
                             )
                         )
                     }
                     prefs.savePendingReminderOps(list)
-                    list
+                    list.size to prefs.loadPendingFavOps().size
                 }
-                _uiState.update { it.copy(pendingSyncCount = ops.size) }
-                syncGoogleData(includePhotos = false)
+                _uiState.update { it.copy(pendingSyncCount = opsCount + favCount) }
+                runPiSyncCycle(includePhotos = false)
             }
         }
     }
@@ -1710,43 +2702,70 @@ class NernalViewModel(application: Application) : AndroidViewModel(application) 
     }
 
     private suspend fun commitDeleteReminderOp(existing: ReminderItem) {
-        if (_uiState.value.authState != GoogleAuthState.SIGNED_IN) return
-        val ops = withContext(Dispatchers.IO) {
-            val list = prefs.loadPendingReminderOps().toMutableList()
-            val wasUnsyncedLocal = list.any { it.action == PendingReminderAction.ADD && it.reminderId == existing.id }
-            list.removeAll { it.reminderId == existing.id }
-            if (!wasUnsyncedLocal && !existing.sourceId.isNullOrBlank() && !existing.remoteId.isNullOrBlank()) {
-                list.add(
-                    PendingReminderOp(
-                        opId = UUID.randomUUID().toString(),
-                        action = PendingReminderAction.DELETE,
-                        reminderId = existing.id,
-                        category = existing.category,
-                        sourceId = existing.sourceId,
-                        remoteId = existing.remoteId,
+        val isGoogleItem = existing.sourceId != null && existing.sourceId != NernalRepository.PI_SOURCE_ID
+        if (isGoogleItem) {
+            if (_uiState.value.authState != GoogleAuthState.SIGNED_IN) return
+            val (opsCount, favCount) = withContext(Dispatchers.IO) {
+                val list = prefs.loadPendingReminderOps().toMutableList()
+                val wasUnsyncedLocal = list.any { it.action == PendingReminderAction.ADD && it.reminderId == existing.id }
+                list.removeAll { it.reminderId == existing.id }
+                if (!wasUnsyncedLocal && !existing.remoteId.isNullOrBlank()) {
+                    list.add(
+                        PendingReminderOp(
+                            opId = UUID.randomUUID().toString(),
+                            action = PendingReminderAction.DELETE,
+                            reminderId = existing.id,
+                            category = existing.category,
+                            sourceId = existing.sourceId,
+                            remoteId = existing.remoteId,
+                        )
                     )
-                )
+                }
+                prefs.savePendingReminderOps(list)
+                val favs = if (_uiState.value.piSyncEnabled) prefs.loadPendingFavOps().size else 0
+                list.size to favs
             }
-            prefs.savePendingReminderOps(list)
-            list
+            _uiState.update { it.copy(pendingSyncCount = opsCount + favCount) }
+            syncGoogleData(includePhotos = false)
+        } else if (_uiState.value.piSyncEnabled) {
+            val (opsCount, favCount) = withContext(Dispatchers.IO) {
+                val list = prefs.loadPendingReminderOps().toMutableList()
+                val wasUnsyncedLocal = list.any { it.action == PendingReminderAction.ADD && it.reminderId == existing.id }
+                list.removeAll { it.reminderId == existing.id }
+                if (!wasUnsyncedLocal) {
+                    list.add(
+                        PendingReminderOp(
+                            opId = UUID.randomUUID().toString(),
+                            action = PendingReminderAction.DELETE,
+                            reminderId = existing.id,
+                            category = existing.category,
+                            sourceId = NernalRepository.PI_SOURCE_ID,
+                            remoteId = existing.remoteId,
+                        )
+                    )
+                }
+                prefs.savePendingReminderOps(list)
+                list.size to prefs.loadPendingFavOps().size
+            }
+            _uiState.update { it.copy(pendingSyncCount = opsCount + favCount) }
+            runPiSyncCycle(includePhotos = false)
         }
-        _uiState.update { it.copy(pendingSyncCount = ops.size) }
-        syncGoogleData(includePhotos = false)
     }
 
     private suspend fun flushPendingReminderOps(accessToken: String): List<PendingReminderOp> {
-        val pending = withContext(Dispatchers.IO) { prefs.loadPendingReminderOps() }
-        if (pending.isEmpty()) return emptyList()
+        val allPending = withContext(Dispatchers.IO) { prefs.loadPendingReminderOps() }
+        val googlePending = allPending.filter { it.sourceId != null && it.sourceId != NernalRepository.PI_SOURCE_ID }
+        if (googlePending.isEmpty()) return allPending
 
-        val remaining = mutableListOf<PendingReminderOp>()
+        val remainingGoogle = mutableListOf<PendingReminderOp>()
         val tempRemoteMap = mutableMapOf<String, Pair<String, String>>()
         val zone = currentZoneId()
         var halted = false
         var skippedNotice: String? = null
 
-        for (op in pending) {
+        for (op in googlePending) {
             if (halted) {
-                remaining.add(op)
+                remainingGoogle.add(op)
                 continue
             }
             val mapped = tempRemoteMap[op.reminderId]
@@ -1757,7 +2776,7 @@ class NernalViewModel(application: Application) : AndroidViewModel(application) 
                 PendingReminderAction.ADD -> {
                     val targetSource = srcId ?: resolveTargetSourceId(op.category)
                     if (targetSource.isNullOrBlank()) {
-                        remaining.add(op)
+                        remainingGoogle.add(op)
                         continue
                     }
                     when (
@@ -1775,7 +2794,7 @@ class NernalViewModel(application: Application) : AndroidViewModel(application) 
                                     when (val patchRes = repo.updateTaskCompletion(accessToken, targetSource, remoteId, true)) {
                                         is RemoteMutationResult.TransientError -> {
                                             halted = true
-                                            remaining.add(
+                                            remainingGoogle.add(
                                                 PendingReminderOp(
                                                     opId = UUID.randomUUID().toString(),
                                                     action = PendingReminderAction.UPDATE,
@@ -1797,7 +2816,7 @@ class NernalViewModel(application: Application) : AndroidViewModel(application) 
                         }
                         is RemoteMutationResult.TransientError -> {
                             halted = true
-                            remaining.add(op)
+                            remainingGoogle.add(op)
                         }
                         is RemoteMutationResult.PermanentError -> {
                             Log.w("NernalSync", "Dropped poison ADD op (${op.text}): HTTP ${res.httpCode} ${res.message}")
@@ -1813,7 +2832,7 @@ class NernalViewModel(application: Application) : AndroidViewModel(application) 
                         is RemoteMutationResult.Success -> Unit
                         is RemoteMutationResult.TransientError -> {
                             halted = true
-                            remaining.add(op.copy(sourceId = srcId, remoteId = remId))
+                            remainingGoogle.add(op.copy(sourceId = srcId, remoteId = remId))
                         }
                         is RemoteMutationResult.PermanentError -> {
                             Log.w("NernalSync", "Dropped poison UPDATE op (${op.reminderId}): HTTP ${res.httpCode} ${res.message}")
@@ -1832,7 +2851,7 @@ class NernalViewModel(application: Application) : AndroidViewModel(application) 
                         is RemoteMutationResult.Success -> Unit
                         is RemoteMutationResult.TransientError -> {
                             halted = true
-                            remaining.add(op.copy(sourceId = srcId, remoteId = remId))
+                            remainingGoogle.add(op.copy(sourceId = srcId, remoteId = remId))
                         }
                         is RemoteMutationResult.PermanentError -> {
                             Log.w("NernalSync", "Dropped poison DELETE op (${op.reminderId}): HTTP ${res.httpCode} ${res.message}")
@@ -1843,13 +2862,17 @@ class NernalViewModel(application: Application) : AndroidViewModel(application) 
             }
         }
 
-        if (remaining != pending) {
-            withContext(Dispatchers.IO) { prefs.savePendingReminderOps(remaining) }
+        val attemptedIds = googlePending.map { it.opId }.toSet()
+        val latestAll = withContext(Dispatchers.IO) { prefs.loadPendingReminderOps() }
+        val nonGoogleOrConcurrent = latestAll.filter { it.opId !in attemptedIds }
+        val finalRemaining = nonGoogleOrConcurrent + remainingGoogle
+        if (finalRemaining != latestAll) {
+            withContext(Dispatchers.IO) { prefs.savePendingReminderOps(finalRemaining) }
         }
         if (skippedNotice != null) {
             _uiState.update { it.copy(syncNotice = skippedNotice) }
         }
-        return remaining
+        return finalRemaining
     }
 
     private fun applyUnflushedReminderOps(
@@ -1880,6 +2903,7 @@ class NernalViewModel(application: Application) : AndroidViewModel(application) 
 
     private companion object {
         const val WEATHER_REFRESH_MS = 15 * 60_000L
+        const val PI_SYNC_INTERVAL_MS = 45_000L
         const val GOOGLE_SYNC_INTERVAL_MS = 60_000L
         const val GOOGLE_SYNC_DIMMED_INTERVAL_MS = 5 * 60_000L
         const val PHOTOS_URL_REFRESH_MS = 45 * 60_000L
@@ -1888,6 +2912,7 @@ class NernalViewModel(application: Application) : AndroidViewModel(application) 
         val TIME_FMT: DateTimeFormatter = DateTimeFormatter.ofPattern("h:mm", Locale.US)
         val AMPM_FMT: DateTimeFormatter = DateTimeFormatter.ofPattern("a", Locale.US)
         val DATE_FMT: DateTimeFormatter = DateTimeFormatter.ofPattern("EEEE, MMM d, yyyy", Locale.US)
+        val DAY_DATE_FMT: DateTimeFormatter = DateTimeFormatter.ofPattern("EEE, MMM d", Locale.US)
         val DATE_KEY_FMT: DateTimeFormatter = DateTimeFormatter.ofPattern("yyyy-MM-dd", Locale.US)
     }
 }

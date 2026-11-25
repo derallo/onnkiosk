@@ -17,8 +17,143 @@ data class CachedAlbumLibrary(
 
 class FramePrefs(context: Context) {
     private val prefs: SharedPreferences =
-        context.getSharedPreferences("nernal_oauth_frame_prefs", Context.MODE_PRIVATE)
-    private val libraryCacheFile = File(context.cacheDir, "oauth_album_library_cache.json")
+        context.getSharedPreferences(BuildConfig.PREFS_NAME, Context.MODE_PRIVATE)
+    private val libraryCacheFile = File(context.cacheDir, BuildConfig.LIBRARY_CACHE_FILE)
+    private val localMemoryFile = File(context.filesDir, "memory_book_local.json")
+
+    // --- Pi Sync & Favorites ---
+
+    fun loadPiSyncEnabled(): Boolean =
+        prefs.getBoolean(KEY_PI_SYNC_ENABLED, BuildConfig.DEFAULT_PI_SYNC_ENABLED)
+
+    fun savePiSyncEnabled(enabled: Boolean) {
+        prefs.edit { putBoolean(KEY_PI_SYNC_ENABLED, enabled) }
+    }
+
+    fun loadPiBaseUrl(): String =
+        prefs.getString(KEY_PI_BASE_URL, DEFAULT_PI_URL) ?: DEFAULT_PI_URL
+
+    fun savePiBaseUrl(rawUrl: String): String {
+        val normalized = normalizePiUrl(rawUrl)
+        prefs.edit { putString(KEY_PI_BASE_URL, normalized) }
+        return normalized
+    }
+
+    fun loadPendingFavOps(): List<PendingFavOp> {
+        val raw = prefs.getString(KEY_PENDING_FAV_OPS, null) ?: return emptyList()
+        return try {
+            val arr = JSONArray(raw)
+            buildList(arr.length()) {
+                for (i in 0 until arr.length()) {
+                    val o = arr.optJSONObject(i) ?: continue
+                    val id = o.optString("photoId")
+                    if (id.isNotBlank()) {
+                        add(PendingFavOp(id, o.optBoolean("favorite"), o.optLong("updatedAtMs", 0L)))
+                    }
+                }
+            }
+        } catch (_: Exception) {
+            emptyList()
+        }
+    }
+
+    fun savePendingFavOps(ops: List<PendingFavOp>) {
+        val arr = JSONArray()
+        for (op in ops) {
+            arr.put(
+                JSONObject().apply {
+                    put("photoId", op.photoId)
+                    put("favorite", op.favorite)
+                    put("updatedAtMs", op.updatedAtMs)
+                }
+            )
+        }
+        prefs.edit { putString(KEY_PENDING_FAV_OPS, arr.toString()) }
+    }
+
+    // --- Hardware, Camera Wake, Audio & Gemini AI ---
+
+    fun loadCameraMotionWakeEnabled(): Boolean =
+        prefs.getBoolean(KEY_CAMERA_MOTION_WAKE, true)
+
+    fun saveCameraMotionWakeEnabled(enabled: Boolean) {
+        prefs.edit { putBoolean(KEY_CAMERA_MOTION_WAKE, enabled) }
+    }
+
+    fun loadAutoSleepMinutes(): Int =
+        prefs.getInt(KEY_AUTO_SLEEP_MINUTES, DEFAULT_AUTO_SLEEP_MINUTES).coerceIn(0, 60)
+
+    fun saveAutoSleepMinutes(minutes: Int) {
+        prefs.edit { putInt(KEY_AUTO_SLEEP_MINUTES, minutes.coerceIn(0, 60)) }
+    }
+
+    fun loadAudibleEventAlertsEnabled(): Boolean =
+        prefs.getBoolean(KEY_AUDIBLE_EVENT_ALERTS, true)
+
+    fun saveAudibleEventAlertsEnabled(enabled: Boolean) {
+        prefs.edit { putBoolean(KEY_AUDIBLE_EVENT_ALERTS, enabled) }
+    }
+
+    fun loadGeminiApiKey(): String =
+        prefs.getString(KEY_GEMINI_API_KEY, "")?.trim().orEmpty()
+
+    fun saveGeminiApiKey(apiKey: String) {
+        prefs.edit { putString(KEY_GEMINI_API_KEY, apiKey.trim()) }
+    }
+
+    fun loadLocalMemoryEntries(): List<MemoryEntry> {
+        if (!localMemoryFile.exists()) return emptyList()
+        return try {
+            val arr = JSONArray(localMemoryFile.readText())
+            buildList(arr.length()) {
+                for (i in 0 until arr.length()) {
+                    val o = arr.optJSONObject(i) ?: continue
+                    val id = o.optString("id")
+                    val title = o.optString("title")
+                    if (id.isBlank() || title.isBlank()) continue
+                    add(
+                        MemoryEntry(
+                            id = id,
+                            notebook = o.optString("notebook", "notes"),
+                            title = title,
+                            summary = o.optString("summary"),
+                            content = o.optString("content"),
+                            updatedAtMs = o.optLong("updatedAtMs", System.currentTimeMillis()),
+                            fromPi = o.optBoolean("fromPi", false),
+                        )
+                    )
+                }
+            }
+        } catch (_: Exception) {
+            emptyList()
+        }
+    }
+
+    fun saveLocalMemoryEntries(entries: List<MemoryEntry>) {
+        try {
+            val arr = JSONArray()
+            for (entry in entries) {
+                arr.put(
+                    JSONObject().apply {
+                        put("id", entry.id)
+                        put("notebook", entry.notebook)
+                        put("title", entry.title)
+                        put("summary", entry.summary)
+                        put("content", entry.content)
+                        put("updatedAtMs", entry.updatedAtMs)
+                        put("fromPi", entry.fromPi)
+                    }
+                )
+            }
+            val tmp = File(localMemoryFile.parentFile, "${localMemoryFile.name}.tmp")
+            tmp.writeText(arr.toString())
+            if (!tmp.renameTo(localMemoryFile)) {
+                localMemoryFile.writeText(arr.toString())
+                tmp.delete()
+            }
+        } catch (_: Exception) {
+        }
+    }
 
     // --- OAuth Client & Tokens ---
 
@@ -125,11 +260,8 @@ class FramePrefs(context: Context) {
             remove(KEY_SELECTED_TASK_LISTS)
             remove(KEY_SHOPPING_TASK_LISTS)
             remove(KEY_SELECTED_PHOTO_ALBUMS)
-            remove(KEY_REMINDERS)
-            remove(KEY_PENDING_REM_OPS)
         }
         clearPendingOAuthSession()
-        clearAlbumLibrary()
     }
 
     // --- Selected Google Sources ---
@@ -160,7 +292,11 @@ class FramePrefs(context: Context) {
     }
 
     fun loadCustomSharedAlbumUrls(): List<String> {
-        val raw = prefs.getString(KEY_CUSTOM_SHARED_ALBUM_URLS, null) ?: return emptyList()
+        val defaultUrls = defaultAlbumUrls()
+        if (!prefs.contains(KEY_CUSTOM_SHARED_ALBUM_URLS)) {
+            return defaultUrls
+        }
+        val raw = prefs.getString(KEY_CUSTOM_SHARED_ALBUM_URLS, null) ?: return defaultUrls
         return try {
             val arr = JSONArray(raw)
             buildList(arr.length()) {
@@ -170,7 +306,7 @@ class FramePrefs(context: Context) {
                 }
             }
         } catch (_: Exception) {
-            emptyList()
+            defaultUrls
         }
     }
 
@@ -230,6 +366,11 @@ class FramePrefs(context: Context) {
                 .toSet()
                 .takeIf { it.isNotEmpty() }
         }
+        if (BuildConfig.IS_NERNAL_FAMILY_BUILD) {
+            return prefs.getInt(KEY_LEGACY_PHOTO_YEAR_FILTER, 0)
+                .takeIf { it > 1970 }
+                ?.let { setOf(it) }
+        }
         return null
     }
 
@@ -239,6 +380,9 @@ class FramePrefs(context: Context) {
                 years == null -> remove(KEY_PHOTO_YEAR_FILTERS)
                 years.isEmpty() -> putString(KEY_PHOTO_YEAR_FILTERS, "NONE")
                 else -> putString(KEY_PHOTO_YEAR_FILTERS, years.sorted().joinToString(","))
+            }
+            if (BuildConfig.IS_NERNAL_FAMILY_BUILD) {
+                remove(KEY_LEGACY_PHOTO_YEAR_FILTER)
             }
         }
     }
@@ -488,10 +632,80 @@ class FramePrefs(context: Context) {
         prefs.edit { putBoolean(KEY_CALENDAR_PRIMARY_MODE, enabled) }
     }
 
+    fun loadWeatherCollapsed(): Boolean =
+        prefs.getBoolean(KEY_WEATHER_COLLAPSED, false)
+
+    fun saveWeatherCollapsed(collapsed: Boolean) {
+        prefs.edit { putBoolean(KEY_WEATHER_COLLAPSED, collapsed) }
+    }
+
+    fun loadDismissedAlertKeys(): Set<String> =
+        prefs.getStringSet(KEY_DISMISSED_ALERT_KEYS, emptySet())?.toSet() ?: emptySet()
+
+    fun saveDismissedAlertKeys(keys: Set<String>) {
+        prefs.edit { putStringSet(KEY_DISMISSED_ALERT_KEYS, keys.toSet()) }
+    }
+
+    fun loadAlarmConfig(): AlarmConfig {
+        val raw = prefs.getString(KEY_ALARM_CONFIG, null) ?: return AlarmConfig()
+        return try {
+            val obj = JSONObject(raw)
+            val daysArr = obj.optJSONArray("daysOfWeek")
+            val days = if (daysArr != null) {
+                buildSet {
+                    for (i in 0 until daysArr.length()) {
+                        val d = daysArr.optInt(i, 0)
+                        if (d in 1..7) add(d)
+                    }
+                }.ifEmpty { setOf(1, 2, 3, 4, 5, 6, 7) }
+            } else {
+                setOf(1, 2, 3, 4, 5, 6, 7)
+            }
+            val timing = runCatching {
+                AlarmBriefTiming.valueOf(obj.optString("speakBriefTiming", AlarmBriefTiming.ON_DISMISS.name))
+            }.getOrDefault(AlarmBriefTiming.ON_DISMISS)
+            AlarmConfig(
+                enabled = obj.optBoolean("enabled", false),
+                hour24 = obj.optInt("hour24", 7).coerceIn(0, 23),
+                minute = obj.optInt("minute", 0).coerceIn(0, 59),
+                daysOfWeek = days,
+                speakBriefTiming = timing,
+                label = obj.optString("label", "Morning Alarm").ifBlank { "Morning Alarm" },
+            )
+        } catch (_: Exception) {
+            AlarmConfig()
+        }
+    }
+
+    fun saveAlarmConfig(config: AlarmConfig) {
+        val daysArr = JSONArray()
+        config.daysOfWeek.sorted().forEach { daysArr.put(it) }
+        val obj = JSONObject().apply {
+            put("enabled", config.enabled)
+            put("hour24", config.hour24.coerceIn(0, 23))
+            put("minute", config.minute.coerceIn(0, 59))
+            put("daysOfWeek", daysArr)
+            put("speakBriefTiming", config.speakBriefTiming.name)
+            put("label", config.label.ifBlank { "Morning Alarm" })
+        }
+        prefs.edit { putString(KEY_ALARM_CONFIG, obj.toString()) }
+    }
+
     companion object {
+        const val DEFAULT_PI_URL = "http://192.168.68.86:3000"
         const val DEFAULT_SLIDE_INTERVAL_SEC = 10
         const val DEFAULT_DIM_BRIGHTNESS = 0.16f
         const val DEFAULT_GLOBAL_BRIGHTNESS = 0.85f
+        const val DEFAULT_AUTO_SLEEP_MINUTES = 10
+
+        private const val KEY_PI_SYNC_ENABLED = "pi_sync_enabled_v1"
+        private const val KEY_PI_BASE_URL = "pi_base_url_v1"
+        private const val KEY_PENDING_FAV_OPS = "pending_fav_ops_v1"
+
+        private const val KEY_CAMERA_MOTION_WAKE = "camera_motion_wake_v1"
+        private const val KEY_AUTO_SLEEP_MINUTES = "auto_sleep_minutes_v1"
+        private const val KEY_AUDIBLE_EVENT_ALERTS = "audible_event_alerts_v1"
+        private const val KEY_GEMINI_API_KEY = "gemini_api_key_v1"
 
         private const val KEY_OAUTH_CLIENT_ID = "oauth_client_id_v1"
         private const val KEY_OAUTH_CLIENT_SECRET = "oauth_client_secret_v1"
@@ -508,6 +722,7 @@ class FramePrefs(context: Context) {
         private const val KEY_USER_LOCATION = "user_location_v1"
 
         private const val KEY_SLIDE_INTERVAL_SEC = "local_slide_interval_sec_v1"
+        private const val KEY_LEGACY_PHOTO_YEAR_FILTER = "local_photo_year_v1"
         private const val KEY_PHOTO_YEAR_FILTERS = "local_photo_years_v2"
         private const val KEY_PHOTO_ALBUM_FILTER = "local_photo_album_v1"
         private const val KEY_DIM_BRIGHTNESS = "local_dim_brightness_v1"
@@ -515,9 +730,33 @@ class FramePrefs(context: Context) {
         private const val KEY_WAKE_ON_EVENT_REMINDER = "wake_on_event_reminder_v1"
         private const val KEY_CALENDAR_VIEW_MODE = "calendar_view_mode_v1"
         private const val KEY_CALENDAR_PRIMARY_MODE = "calendar_primary_mode_v1"
-        private const val KEY_REMINDERS = "reminders_v3_oauth"
+        private const val KEY_WEATHER_COLLAPSED = "weather_collapsed_v1"
+        private const val KEY_DISMISSED_ALERT_KEYS = "dismissed_alert_keys_v1"
+        private const val KEY_ALARM_CONFIG = "alarm_config_v1"
+        private val KEY_REMINDERS = BuildConfig.REMINDERS_PREF_KEY
         private const val KEY_STARRED_IDS = "starred_photo_ids_v1"
-        private const val KEY_PENDING_REM_OPS = "pending_rem_ops_v2_oauth"
+        private val KEY_PENDING_REM_OPS = BuildConfig.PENDING_REM_OPS_KEY
         private const val KEY_ACTIVE_TASK_LIST_FILTERS = "active_task_list_filters_v1"
+
+        fun defaultAlbumUrls(): List<String> =
+            BuildConfig.DEFAULT_ALBUM_URLS_CSV
+                .split(",")
+                .map { it.trim() }
+                .filter { it.isNotBlank() }
+
+        fun normalizePiUrl(raw: String): String {
+            var trimmed = raw.trim().trimEnd('/')
+            if (trimmed.isEmpty()) return DEFAULT_PI_URL
+            if (!trimmed.startsWith("http://") && !trimmed.startsWith("https://")) {
+                trimmed = "http://$trimmed"
+            }
+            val hostPart = trimmed.substringAfter("://").substringBefore('/')
+            if (!hostPart.contains(":")) {
+                val pathPart = trimmed.substringAfter(hostPart, "")
+                val scheme = trimmed.substringBefore("://")
+                trimmed = "$scheme://$hostPart:3000$pathPart"
+            }
+            return trimmed
+        }
     }
 }

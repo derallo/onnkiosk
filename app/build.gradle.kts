@@ -30,8 +30,8 @@ android {
         applicationId = "com.nernal.frame.oauth"
         minSdk = 33
         targetSdk = 36
-        versionCode = 2
-        versionName = "0.2.1-oauth"
+        versionCode = 3
+        versionName = "0.3.0-oauth"
 
         buildConfigField(
             "String",
@@ -43,6 +43,18 @@ android {
             "DEFAULT_OAUTH_CLIENT_SECRET",
             quoteBuildConfigString(localProps.getProperty("oauth.clientSecret")),
         )
+        buildConfigField("boolean", "IS_NERNAL_FAMILY_BUILD", "false")
+        buildConfigField("String", "APP_DISPLAY_NAME", "\"Onnkiosk\"")
+        buildConfigField("String", "AUTH_SCHEME", "\"onnkiosk\"")
+        buildConfigField("String", "PREFS_NAME", "\"nernal_oauth_frame_prefs\"")
+        buildConfigField("String", "LIBRARY_CACHE_FILE", "\"oauth_album_library_cache.json\"")
+        buildConfigField("String", "REMINDERS_PREF_KEY", "\"reminders_v3_oauth\"")
+        buildConfigField("String", "PENDING_REM_OPS_KEY", "\"pending_rem_ops_v2_oauth\"")
+        buildConfigField("boolean", "DEFAULT_PI_SYNC_ENABLED", "false")
+        buildConfigField("String", "DEFAULT_LOCATION_NAME", "\"WASHINGTON, DC\"")
+        buildConfigField("String", "DEFAULT_LAT", "\"38.8951\"")
+        buildConfigField("String", "DEFAULT_LON", "\"-77.0364\"")
+        buildConfigField("String", "DEFAULT_ALBUM_URLS_CSV", "\"\"")
     }
 
     buildTypes {
@@ -88,6 +100,7 @@ dependencies {
 
     implementation(libs.okhttp)
     implementation(libs.kotlinx.coroutines.android)
+    implementation("com.google.zxing:core:3.5.3")
 
     testImplementation(libs.junit)
     testImplementation(libs.org.json)

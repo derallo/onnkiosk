@@ -56,6 +56,8 @@ class GoogleAuthManager(
     private var serverSocket: ServerSocket? = null
     private var serverJob: Job? = null
     private var activeSession: PendingAuthSession? = null
+    private var keyServerSocket: ServerSocket? = null
+    private var keyServerJob: Job? = null
 
     fun startAuthSession(
         scope: CoroutineScope,
@@ -129,6 +131,139 @@ class GoogleAuthManager(
         serverSocket = null
     }
 
+    /** Starts a lightweight local Wi-Fi form so a user can paste a Gemini API key from their phone or laptop. */
+    fun startGeminiKeyServer(
+        scope: CoroutineScope,
+        onKeyReceived: (String) -> Unit,
+    ): Result<String> = runCatching {
+        stopGeminiKeyServer()
+        val lanIp = getDeviceLanIp() ?: error("Connect this tablet to Wi-Fi first.")
+        val bound = bindFirstAvailablePort(listOf(8091, 8092, 8093, 3001))
+            ?: error("Could not open a local Wi-Fi port for key transfer.")
+        val url = "http://$lanIp:${bound.localPort}/key"
+        keyServerSocket = bound
+        keyServerJob = scope.launch(Dispatchers.IO) {
+            runCatching {
+                while (isActive && !bound.isClosed) {
+                    val socket = try {
+                        bound.accept()
+                    } catch (_: SocketException) {
+                        break
+                    }
+                    launch(Dispatchers.IO) {
+                        handleGeminiKeyHttpConnection(socket, onKeyReceived)
+                    }
+                }
+            }
+        }
+        url
+    }
+
+    fun stopGeminiKeyServer() {
+        keyServerJob?.cancel()
+        keyServerJob = null
+        runCatching { keyServerSocket?.close() }
+        keyServerSocket = null
+    }
+
+    private fun handleGeminiKeyHttpConnection(
+        socket: java.net.Socket,
+        onKeyReceived: (String) -> Unit,
+    ) {
+        runCatching {
+            socket.use { sock ->
+                sock.soTimeout = 15_000
+                val reader = BufferedReader(InputStreamReader(sock.getInputStream(), StandardCharsets.UTF_8))
+                val requestLine = reader.readLine() ?: return@use
+                val parts = requestLine.split(" ")
+                val method = parts.getOrNull(0)?.uppercase() ?: "GET"
+                val path = parts.getOrNull(1) ?: "/"
+
+                var contentLength = 0
+                while (true) {
+                    val line = reader.readLine() ?: break
+                    if (line.isEmpty()) break
+                    if (line.startsWith("Content-Length:", ignoreCase = true)) {
+                        contentLength = line.substringAfter(":").trim().toIntOrNull()?.coerceIn(0, 8192) ?: 0
+                    }
+                }
+
+                val postBody = if (method == "POST" && contentLength > 0) {
+                    val buf = CharArray(contentLength)
+                    var read = 0
+                    while (read < contentLength) {
+                        val n = reader.read(buf, read, contentLength - read)
+                        if (n <= 0) break
+                        read += n
+                    }
+                    String(buf, 0, read)
+                } else {
+                    ""
+                }
+
+                val appLabel = com.nernal.frame.BuildConfig.APP_DISPLAY_NAME
+                var savedKey: String? = null
+                if (method == "POST" && path.startsWith("/key")) {
+                    for (pair in postBody.split("&")) {
+                        val eq = pair.indexOf('=')
+                        if (eq <= 0) continue
+                        val k = URLDecoder.decode(pair.substring(0, eq), "UTF-8")
+                        val v = URLDecoder.decode(pair.substring(eq + 1), "UTF-8").trim()
+                        if (k == "apikey" && v.isNotBlank()) {
+                            savedKey = NernalRepository.GEMINI_API_KEY_REGEX.find(v)?.value ?: v
+                        }
+                    }
+                }
+
+                val html = if (savedKey != null) {
+                    """
+                    <!DOCTYPE html>
+                    <html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+                    <title>$appLabel Gemini Key Saved</title></head>
+                    <body style="font-family:sans-serif;background:#101113;color:#faf8f5;padding:36px;max-width:520px;margin:0 auto;text-align:center;">
+                    <h1 style="color:#34d399;">Gemini API Key Saved</h1>
+                    <p style="color:#bbb7af;font-size:15px;">Super $appLabel is now enabled on your tablet. You can close this tab.</p>
+                    </body></html>
+                    """.trimIndent()
+                } else {
+                    """
+                    <!DOCTYPE html>
+                    <html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+                    <title>$appLabel Gemini Key</title></head>
+                    <body style="font-family:sans-serif;background:#101113;color:#faf8f5;padding:24px;max-width:520px;margin:0 auto;">
+                    <h2 style="color:#f5f2eb;margin-bottom:8px;">Send Gemini API Key to $appLabel</h2>
+                    <p style="color:#bbb7af;font-size:14px;line-height:1.5;">
+                    Paste your Gemini API key from <a href="https://aistudio.google.com/apikey" target="_blank" style="color:#60a5fa;">Google AI Studio</a> below. It transfers directly over your local Wi-Fi straight to this tablet.
+                    </p>
+                    <form method="POST" action="/key" style="background:#18191c;border:1px solid #2e3036;border-radius:12px;padding:16px;margin-top:16px;">
+                    <label for="apikey" style="display:block;color:#f5f2eb;font-weight:bold;font-size:13px;margin-bottom:8px;">Gemini API Key</label>
+                    <input id="apikey" name="apikey" type="password" placeholder="AIzaSy..." required autocomplete="off" style="width:100%;box-sizing:border-box;padding:12px;border-radius:8px;border:1px solid #2e3036;background:#101113;color:#faf8f5;font-size:15px;margin-bottom:14px;">
+                    <button type="submit" style="width:100%;padding:14px;border:none;border-radius:10px;background:#f5f2eb;color:#101113;font-weight:bold;font-size:16px;cursor:pointer;">Save Key to Tablet</button>
+                    </form>
+                    </body></html>
+                    """.trimIndent()
+                }
+
+                val bodyBytes = html.toByteArray(StandardCharsets.UTF_8)
+                val headers = buildString {
+                    append("HTTP/1.1 200 OK\r\n")
+                    append("Content-Type: text/html; charset=utf-8\r\n")
+                    append("Content-Length: ${bodyBytes.size}\r\n")
+                    append("Connection: close\r\n\r\n")
+                }.toByteArray(StandardCharsets.US_ASCII)
+                val out = sock.getOutputStream()
+                out.write(headers)
+                out.write(bodyBytes)
+                out.flush()
+
+                if (savedKey != null) {
+                    onKeyReceived(savedKey)
+                    stopGeminiKeyServer()
+                }
+            }
+        }
+    }
+
     private fun handleHttpConnection(
         socket: java.net.Socket,
         session: PendingAuthSession,
@@ -149,6 +284,13 @@ class GoogleAuthManager(
                 }
 
                 val out = sock.getOutputStream()
+                val port = session.serverPort ?: 3000
+                val appLabel = com.nernal.frame.BuildConfig.APP_DISPLAY_NAME
+                val authScheme = com.nernal.frame.BuildConfig.AUTH_SCHEME
+                val appPackage = com.nernal.frame.BuildConfig.APPLICATION_ID
+                val returnIntentUrl =
+                    "intent://auth-complete#Intent;scheme=$authScheme;package=$appPackage;S.browser_fallback_url=http%3A%2F%2Flocalhost%3A$port%2F;end"
+
                 if (path.startsWith("/start")) {
                     val escapedAuthUrl = session.authUrl
                         .replace("&", "&amp;")
@@ -158,9 +300,9 @@ class GoogleAuthManager(
                     val body = """
                         <!DOCTYPE html>
                         <html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
-                        <title>Onnkiosk Google Sign-In</title></head>
+                        <title>$appLabel Google Sign-In</title></head>
                         <body style="font-family:sans-serif;background:#101113;color:#faf8f5;padding:24px;max-width:520px;margin:0 auto;">
-                        <h2 style="color:#f5f2eb;margin-bottom:8px;">Onnkiosk Sign-In</h2>
+                        <h2 style="color:#f5f2eb;margin-bottom:8px;">$appLabel Sign-In</h2>
                         <p style="color:#bbb7af;font-size:14px;line-height:1.5;">
                         1. Tap below to sign in with Google and approve permissions.<br>
                         2. After approving, Google tries to redirect to <code>localhost</code> on this phone. Copy that full <code>localhost</code> URL from your address bar and paste it into Step 2 below.
@@ -171,7 +313,7 @@ class GoogleAuthManager(
                         <form method="GET" action="/auth/callback" style="background:#18191c;border:1px solid #2e3036;border-radius:12px;padding:16px;">
                         <label for="paste" style="display:block;color:#60a5fa;font-weight:bold;font-size:13px;margin-bottom:8px;">2. Paste Redirect URL or Code</label>
                         <input id="paste" name="paste" type="text" placeholder="http://localhost:3000/auth/callback?..." required style="width:100%;box-sizing:border-box;padding:12px;border-radius:8px;border:1px solid #2e3036;background:#101113;color:#faf8f5;font-size:14px;margin-bottom:12px;">
-                        <button type="submit" style="width:100%;padding:13px;border:none;border-radius:8px;background:#60a5fa;color:#082f49;font-weight:bold;font-size:15px;cursor:pointer;">Connect Onnkiosk</button>
+                        <button type="submit" style="width:100%;padding:13px;border:none;border-radius:8px;background:#60a5fa;color:#082f49;font-weight:bold;font-size:15px;cursor:pointer;">Connect $appLabel</button>
                         </form>
                         </body></html>
                     """.trimIndent().toByteArray(StandardCharsets.UTF_8)
@@ -190,23 +332,38 @@ class GoogleAuthManager(
                 val parsed = extractAuthCodeAndState(path)
                 val isError = !parsed.error.isNullOrBlank()
                 val hasCode = !parsed.code.isNullOrBlank()
+                val isLanPaste = path.contains("paste=")
+                val autoReturnScript = if ((hasCode || isError) && !isLanPaste) {
+                    """<script>setTimeout(function(){window.location.href="$returnIntentUrl";},250);</script>"""
+                } else {
+                    ""
+                }
+                val returnButtonHtml = if (!isLanPaste) {
+                    """<p style="margin-top:24px;"><a href="$returnIntentUrl" style="display:inline-block;background:#f5f2eb;color:#101113;font-weight:bold;text-decoration:none;padding:16px 28px;border-radius:12px;font-size:18px;">Return to $appLabel</a></p>"""
+                } else {
+                    ""
+                }
 
                 val html = if (hasCode) {
                     """
                     <!DOCTYPE html>
-                    <html><head><meta charset="utf-8"><title>Onnkiosk Connected</title></head>
+                    <html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>$appLabel Connected</title></head>
                     <body style="font-family:sans-serif;background:#101113;color:#faf8f5;padding:40px;text-align:center;">
                     <h1 style="color:#34d399;">Google Account Connected</h1>
-                    <p>You can close this browser tab and return to Onnkiosk.</p>
+                    <p style="color:#bbb7af;">${if (isLanPaste) "You can close this browser tab and return to $appLabel." else "Returning to $appLabel. If it does not switch automatically, tap the button below."}</p>
+                    $returnButtonHtml
+                    $autoReturnScript
                     </body></html>
                     """.trimIndent()
                 } else {
                     """
                     <!DOCTYPE html>
-                    <html><head><meta charset="utf-8"><title>Onnkiosk Sign-In</title></head>
+                    <html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>$appLabel Sign-In</title></head>
                     <body style="font-family:sans-serif;background:#101113;color:#faf8f5;padding:40px;text-align:center;">
                     <h2 style="color:#fbbf24;">${if (isError) "Sign-In Cancelled (${parsed.error})" else "Waiting for Google Sign-In"}</h2>
-                    <p>Return to Onnkiosk to try again.</p>
+                    <p style="color:#bbb7af;">Return to $appLabel to try again.</p>
+                    $returnButtonHtml
+                    $autoReturnScript
                     </body></html>
                     """.trimIndent()
                 }

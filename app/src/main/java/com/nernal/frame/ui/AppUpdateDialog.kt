@@ -33,6 +33,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
+import com.nernal.frame.BuildConfig
 import com.nernal.frame.NernalUiState
 import com.nernal.frame.data.AppReleaseInfo
 
@@ -124,7 +125,7 @@ fun AppUpdateDialog(
                     }
                 } else {
                     Text(
-                        text = "A new version of Onnkiosk is available for installation.",
+                        text = "A new version of ${BuildConfig.APP_DISPLAY_NAME} is available for installation.",
                         color = NernalColors.InkMuted,
                         fontSize = 14.sp,
                     )

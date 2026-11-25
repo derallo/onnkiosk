@@ -34,8 +34,11 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.rounded.Send
 import androidx.compose.material.icons.rounded.AccountCircle
+import androidx.compose.material.icons.rounded.Alarm
+import androidx.compose.material.icons.rounded.AutoAwesome
 import androidx.compose.material.icons.rounded.Bedtime
 import androidx.compose.material.icons.rounded.BrokenImage
+import androidx.compose.material.icons.rounded.CameraAlt
 import androidx.compose.material.icons.rounded.ChevronLeft
 import androidx.compose.material.icons.rounded.ChevronRight
 import androidx.compose.material.icons.rounded.DeleteOutline
@@ -44,6 +47,9 @@ import androidx.compose.material.icons.rounded.Event
 import androidx.compose.material.icons.rounded.Fullscreen
 import androidx.compose.material.icons.rounded.FullscreenExit
 import androidx.compose.material.icons.rounded.HelpOutline
+import androidx.compose.material.icons.rounded.LastPage
+import androidx.compose.material.icons.rounded.MenuBook
+import androidx.compose.material.icons.rounded.Mic
 import androidx.compose.material.icons.rounded.Pause
 import androidx.compose.material.icons.rounded.Person
 import androidx.compose.material.icons.rounded.PhotoLibrary
@@ -53,7 +59,11 @@ import androidx.compose.material.icons.rounded.Schedule
 import androidx.compose.material.icons.rounded.Settings
 import androidx.compose.material.icons.rounded.Star
 import androidx.compose.material.icons.rounded.StarOutline
+import androidx.compose.material.icons.rounded.Stop
 import androidx.compose.material.icons.rounded.ViewAgenda
+import androidx.compose.material.icons.rounded.Visibility
+import androidx.compose.material.icons.rounded.VisibilityOff
+import androidx.compose.material.icons.rounded.VolumeUp
 import androidx.compose.material.icons.rounded.Wifi
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
@@ -89,31 +99,51 @@ import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.platform.LocalSoftwareKeyboardController
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.input.PasswordVisualTransformation
+import androidx.compose.ui.text.input.VisualTransformation
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
+import com.nernal.frame.BuildConfig
 import com.nernal.frame.NernalUiState
+import com.nernal.frame.data.AlarmBriefTiming
+import com.nernal.frame.data.AlarmConfig
 import com.nernal.frame.data.AlbumPhoto
 import com.nernal.frame.data.CalendarViewMode
+import com.nernal.frame.data.GeminiKeyCandidate
 import com.nernal.frame.data.GoogleAuthState
+import com.nernal.frame.data.PiConnectionState
 import com.nernal.frame.data.ReminderItem
+import com.nernal.frame.data.VoiceAssistantState
 import com.nernal.frame.data.WeatherData
 import kotlinx.coroutines.delay
 
 fun openDeviceWifiSettings(context: Context) {
-    val intent = Intent(Settings.ACTION_WIFI_SETTINGS).apply {
-        flags = Intent.FLAG_ACTIVITY_NEW_TASK
-    }
-    runCatching {
-        context.startActivity(intent)
-    }.onFailure {
+    openDeviceSystemSettings(context, Settings.ACTION_WIFI_SETTINGS, Settings.ACTION_SETTINGS)
+}
+
+fun openDeviceHomeSettings(context: Context) {
+    openDeviceSystemSettings(context, Settings.ACTION_HOME_SETTINGS, Settings.ACTION_SETTINGS)
+}
+
+private fun openDeviceSystemSettings(
+    context: Context,
+    primaryAction: String,
+    fallbackAction: String,
+) {
+    val launchedPrimary = runCatching {
+        context.startActivity(
+            Intent(primaryAction).apply { flags = Intent.FLAG_ACTIVITY_NEW_TASK },
+        )
+    }.isSuccess
+    if (!launchedPrimary) {
         runCatching {
-            context.startActivity(Intent(Settings.ACTION_SETTINGS).apply {
-                flags = Intent.FLAG_ACTIVITY_NEW_TASK
-            })
+            context.startActivity(
+                Intent(fallbackAction).apply { flags = Intent.FLAG_ACTIVITY_NEW_TASK },
+            )
         }
     }
 }
@@ -129,8 +159,11 @@ fun LifestyleWing(
     onResetFilters: () -> Unit,
     onRefreshAlbums: () -> Unit,
     onOpenSettings: () -> Unit,
-    onOpenHelp: () -> Unit = {},
     onOpenAccount: () -> Unit,
+    onOpenPiSync: () -> Unit = {},
+    onSpeakClick: () -> Unit = {},
+    onToggleCameraWake: () -> Unit = {},
+    onOpenMemories: () -> Unit = {},
     onEnterFullscreen: () -> Unit,
     onDimScreen: () -> Unit,
     onInspectPhoto: () -> Unit,
@@ -141,7 +174,8 @@ fun LifestyleWing(
         modifier = modifier.fillMaxHeight(),
         verticalArrangement = Arrangement.spacedBy(10.dp),
     ) {
-        // Top Utility Bar (zero camera/mic/speaker buttons per frame hardware)
+        // Top Utility Bar: Speak (outlined) on left; right-to-left from right edge: Settings, Night, Eye (if camera)
+        // Account & Wi-Fi appear only during first setup (always accessible inside Settings afterward)
         Row(
             modifier = Modifier
                 .fillMaxWidth()
@@ -149,114 +183,203 @@ fun LifestyleWing(
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.SpaceBetween,
         ) {
-            // LEFT: Account, Wi-Fi, Help
-            Row(
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(8.dp),
-            ) {
-                // Tappable Google Account / Sources indicator: profile silhouette with status dot
-                val dotColor = when {
-                    state.authState == GoogleAuthState.SIGNED_IN && state.googleSyncing ->
-                        NernalColors.WarmAmber
-                    state.authState == GoogleAuthState.SIGNED_IN ->
-                        NernalColors.Emerald
-                    state.authState == GoogleAuthState.SIGNING_IN ->
-                        NernalColors.Accent
-                    state.authState == GoogleAuthState.ERROR ->
-                        NernalColors.Rose
-                    else ->
-                        NernalColors.Amber
-                }
-                Surface(
-                    color = if (state.authState == GoogleAuthState.NOT_SIGNED_IN) Color(0xFF282213) else NernalColors.Card,
-                    shape = RoundedCornerShape(12.dp),
-                    border = BorderStroke(
-                        1.dp,
-                        if (state.authState == GoogleAuthState.NOT_SIGNED_IN) NernalColors.Amber.copy(alpha = 0.65f) else NernalColors.Border,
-                    ),
-                    modifier = Modifier
-                        .size(48.dp)
-                        .clip(RoundedCornerShape(12.dp))
-                        .clickable(onClick = onOpenAccount),
-                ) {
-                    Box(contentAlignment = Alignment.Center) {
-                        Icon(
-                            imageVector = Icons.Rounded.Person,
-                            contentDescription = "Google Account Profile",
-                            tint = if (state.authState == GoogleAuthState.SIGNED_IN) NernalColors.Ink else NernalColors.InkMuted,
-                            modifier = Modifier.size(24.dp),
-                        )
-                        Box(
-                            modifier = Modifier
-                                .align(Alignment.BottomEnd)
-                                .padding(6.dp)
-                                .size(8.dp)
-                                .clip(CircleShape)
-                                .background(dotColor),
-                        )
-                    }
-                }
-
-                val currentContext = LocalContext.current
-                Surface(
-                    color = NernalColors.Card,
-                    shape = RoundedCornerShape(12.dp),
-                    border = BorderStroke(1.dp, NernalColors.Border),
-                    modifier = Modifier
-                        .size(48.dp)
-                        .clip(RoundedCornerShape(12.dp))
-                        .clickable { openDeviceWifiSettings(currentContext) },
-                ) {
-                    Box(contentAlignment = Alignment.Center) {
-                        Icon(
-                            imageVector = Icons.Rounded.Wifi,
-                            contentDescription = "Device Wi-Fi Settings",
-                            tint = NernalColors.Accent,
-                            modifier = Modifier.size(22.dp),
-                        )
-                    }
-                }
-
-                Surface(
-                    color = NernalColors.Card,
-                    shape = RoundedCornerShape(12.dp),
-                    border = BorderStroke(1.dp, NernalColors.Border),
-                    modifier = Modifier
-                        .size(48.dp)
-                        .clip(RoundedCornerShape(12.dp))
-                        .clickable(onClick = onOpenHelp),
-                ) {
-                    Box(contentAlignment = Alignment.Center) {
-                        Text(
-                            text = "?",
-                            color = NernalColors.Gold,
-                            fontSize = 20.sp,
-                            fontWeight = FontWeight.Bold,
-                        )
-                    }
-                }
-            }
-
-            // RIGHT: Refresh, Dim, Fullscreen, SETTINGS (far right)
+            // LEFT: Speak (outlined), Memories (if active), Pi Sync (if enabled), and Account/Wi-Fi only on first setup
             Row(
                 verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.spacedBy(6.dp),
             ) {
-                UtilityIconButton(
-                    icon = Icons.Rounded.Refresh,
-                    contentDescription = "Reshuffle / Sync Photos",
-                    isBusy = state.albumsSyncing,
-                    onClick = onRefreshAlbums,
-                )
+                if (state.capabilities.hasVoiceInputAndOutput) {
+                    val isVoiceActive = state.voiceState != VoiceAssistantState.IDLE
+                    val voiceBg = when (state.voiceState) {
+                        VoiceAssistantState.LISTENING -> Color(0xFF0E3A2C)
+                        VoiceAssistantState.THINKING -> Color(0xFF172554)
+                        VoiceAssistantState.SPEAKING -> Color(0xFF33260F)
+                        VoiceAssistantState.IDLE -> NernalColors.Card
+                    }
+                    val voiceAccent = when (state.voiceState) {
+                        VoiceAssistantState.LISTENING -> NernalColors.Emerald
+                        VoiceAssistantState.THINKING -> NernalColors.Accent
+                        VoiceAssistantState.SPEAKING -> NernalColors.Amber
+                        VoiceAssistantState.IDLE -> NernalColors.Gold
+                    }
+                    Surface(
+                        color = voiceBg,
+                        shape = RoundedCornerShape(12.dp),
+                        border = BorderStroke(1.5.dp, voiceAccent),
+                        modifier = Modifier
+                            .width(72.dp)
+                            .height(48.dp)
+                            .clip(RoundedCornerShape(12.dp))
+                            .clickable(onClick = onSpeakClick),
+                    ) {
+                        Box(contentAlignment = Alignment.Center) {
+                            Icon(
+                                imageVector = if (isVoiceActive) Icons.Rounded.Stop else Icons.Rounded.Mic,
+                                contentDescription = if (isVoiceActive) "Stop Voice Assistant" else "Speak",
+                                tint = voiceAccent,
+                                modifier = Modifier.size(24.dp),
+                            )
+                        }
+                    }
+                }
+
+                if (state.memoryEntries.isNotEmpty() || state.geminiApiKey.isNotBlank() || state.piSyncEnabled) {
+                    Surface(
+                        color = NernalColors.Card,
+                        shape = RoundedCornerShape(12.dp),
+                        border = BorderStroke(1.dp, NernalColors.Border),
+                        modifier = Modifier
+                            .size(width = 46.dp, height = 48.dp)
+                            .clip(RoundedCornerShape(12.dp))
+                            .clickable(onClick = onOpenMemories),
+                    ) {
+                        Box(contentAlignment = Alignment.Center) {
+                            Icon(
+                                imageVector = Icons.Rounded.MenuBook,
+                                contentDescription = "Memory Book",
+                                tint = NernalColors.Gold,
+                                modifier = Modifier.size(21.dp),
+                            )
+                        }
+                    }
+                }
+
+                if (state.piSyncEnabled) {
+                    val (piDotColor, piLabel) = when {
+                        state.pendingSyncCount > 0 -> NernalColors.Amber to "Queue (${state.pendingSyncCount})"
+                        state.piConnection == PiConnectionState.CONNECTED -> NernalColors.Emerald to "Pi Linked"
+                        state.piConnection == PiConnectionState.CHECKING -> NernalColors.WarmAmber to "Pi..."
+                        else -> NernalColors.InkMuted to "Pi"
+                    }
+                    Surface(
+                        color = NernalColors.Card,
+                        shape = RoundedCornerShape(12.dp),
+                        border = BorderStroke(1.dp, NernalColors.Border),
+                        modifier = Modifier
+                            .height(48.dp)
+                            .clip(RoundedCornerShape(12.dp))
+                            .clickable(onClick = onOpenPiSync),
+                    ) {
+                        Row(
+                            modifier = Modifier.padding(horizontal = 8.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(5.dp),
+                        ) {
+                            Box(
+                                modifier = Modifier
+                                    .size(8.dp)
+                                    .clip(CircleShape)
+                                    .background(piDotColor),
+                            )
+                            Text(
+                                text = piLabel,
+                                color = NernalColors.Ink,
+                                fontSize = 11.sp,
+                                fontWeight = FontWeight.Medium,
+                                maxLines = 1,
+                            )
+                        }
+                    }
+                }
+
+                if (state.showFirstSetupShortcuts) {
+                    val dotColor = when {
+                        state.authState == GoogleAuthState.SIGNED_IN && state.googleSyncing -> NernalColors.WarmAmber
+                        state.authState == GoogleAuthState.SIGNED_IN -> NernalColors.Emerald
+                        state.authState == GoogleAuthState.SIGNING_IN -> NernalColors.Accent
+                        state.authState == GoogleAuthState.ERROR -> NernalColors.Rose
+                        else -> NernalColors.Amber
+                    }
+                    Surface(
+                        color = if (state.authState == GoogleAuthState.NOT_SIGNED_IN) Color(0xFF282213) else NernalColors.Card,
+                        shape = RoundedCornerShape(12.dp),
+                        border = BorderStroke(
+                            1.dp,
+                            if (state.authState == GoogleAuthState.NOT_SIGNED_IN) NernalColors.Amber.copy(alpha = 0.65f) else NernalColors.Border,
+                        ),
+                        modifier = Modifier
+                            .size(width = 46.dp, height = 48.dp)
+                            .clip(RoundedCornerShape(12.dp))
+                            .clickable(onClick = onOpenAccount),
+                    ) {
+                        Box(contentAlignment = Alignment.Center) {
+                            Icon(
+                                imageVector = Icons.Rounded.Person,
+                                contentDescription = "Google Account Profile",
+                                tint = if (state.authState == GoogleAuthState.SIGNED_IN) NernalColors.Ink else NernalColors.InkMuted,
+                                modifier = Modifier.size(22.dp),
+                            )
+                            Box(
+                                modifier = Modifier
+                                    .align(Alignment.BottomEnd)
+                                    .padding(5.dp)
+                                    .size(8.dp)
+                                    .clip(CircleShape)
+                                    .background(dotColor),
+                            )
+                        }
+                    }
+
+                    val currentContext = LocalContext.current
+                    Surface(
+                        color = NernalColors.Card,
+                        shape = RoundedCornerShape(12.dp),
+                        border = BorderStroke(1.dp, NernalColors.Border),
+                        modifier = Modifier
+                            .size(width = 46.dp, height = 48.dp)
+                            .clip(RoundedCornerShape(12.dp))
+                            .clickable { openDeviceWifiSettings(currentContext) },
+                    ) {
+                        Box(contentAlignment = Alignment.Center) {
+                            Icon(
+                                imageVector = Icons.Rounded.Wifi,
+                                contentDescription = "Device Wi-Fi Settings",
+                                tint = NernalColors.Accent,
+                                modifier = Modifier.size(21.dp),
+                            )
+                        }
+                    }
+                }
+            }
+
+            // RIGHT (right-to-left from right edge): Settings, Night, Eye (if camera)
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(6.dp),
+            ) {
+                if (state.capabilities.hasCamera) {
+                    val eyeColor = when {
+                        !state.cameraMotionWakeEnabled -> NernalColors.InkMuted
+                        state.motionDetected -> NernalColors.Emerald
+                        else -> NernalColors.Emerald.copy(alpha = 0.75f)
+                    }
+                    Surface(
+                        color = if (state.motionDetected && state.cameraMotionWakeEnabled) Color(0xFF0E3A2C) else NernalColors.Card,
+                        shape = RoundedCornerShape(12.dp),
+                        border = BorderStroke(
+                            1.dp,
+                            if (state.cameraMotionWakeEnabled) eyeColor.copy(alpha = 0.65f) else NernalColors.Border,
+                        ),
+                        modifier = Modifier
+                            .size(width = 46.dp, height = 48.dp)
+                            .clip(RoundedCornerShape(12.dp))
+                            .clickable(onClick = onToggleCameraWake),
+                    ) {
+                        Box(contentAlignment = Alignment.Center) {
+                            Icon(
+                                imageVector = if (state.cameraMotionWakeEnabled) Icons.Rounded.Visibility else Icons.Rounded.VisibilityOff,
+                                contentDescription = "Camera Motion Wake",
+                                tint = eyeColor,
+                                modifier = Modifier.size(21.dp),
+                            )
+                        }
+                    }
+                }
+
                 UtilityIconButton(
                     icon = Icons.Rounded.Bedtime,
-                    contentDescription = "Dim Screen",
+                    contentDescription = "Night Mode",
                     onClick = onDimScreen,
-                )
-                UtilityIconButton(
-                    icon = Icons.Rounded.Fullscreen,
-                    contentDescription = "Fullscreen Slideshow",
-                    onClick = onEnterFullscreen,
                 )
 
                 // Settings: All the way to the right
@@ -269,7 +392,7 @@ fun LifestyleWing(
                         color = if (hasFilter) NernalColors.Gold.copy(alpha = 0.65f) else NernalColors.Border,
                     ),
                     modifier = Modifier
-                        .size(48.dp)
+                        .size(width = 46.dp, height = 48.dp)
                         .clip(RoundedCornerShape(12.dp))
                         .clickable(onClick = onOpenSettings),
                 ) {
@@ -337,6 +460,26 @@ fun LifestyleWing(
                         onOpenAccount = onOpenAccount,
                         onHideCarousel = onToggleCalendarPrimary?.let { fn -> { fn(true) } },
                     )
+                    if (state.isCurrentStarred && state.currentPhoto != null) {
+                        Surface(
+                            color = Color.Black.copy(alpha = 0.65f),
+                            shape = CircleShape,
+                            border = BorderStroke(1.dp, NernalColors.Amber.copy(alpha = 0.75f)),
+                            modifier = Modifier
+                                .align(Alignment.TopEnd)
+                                .padding(12.dp)
+                                .size(34.dp),
+                        ) {
+                            Box(contentAlignment = Alignment.Center) {
+                                Icon(
+                                    imageVector = Icons.Rounded.Star,
+                                    contentDescription = "Favorite photo",
+                                    tint = NernalColors.Amber,
+                                    modifier = Modifier.size(18.dp),
+                                )
+                            }
+                        }
+                    }
                 }
 
                 HorizontalDivider(color = NernalColors.BorderSubtle)
@@ -352,6 +495,7 @@ fun LifestyleWing(
                     onToggleAuto = onToggleAutoAdvance,
                     onToggleStar = onToggleStar,
                     onToggleFavoritesFilter = onToggleFavoritesFilter,
+                    onEnterFullscreen = onEnterFullscreen,
                     onHide = onToggleCalendarPrimary?.let { fn -> { fn(true) } },
                 )
             }
@@ -371,7 +515,7 @@ private fun UtilityIconButton(
         shape = RoundedCornerShape(12.dp),
         border = BorderStroke(1.dp, NernalColors.Border),
         modifier = Modifier
-            .size(48.dp)
+            .size(width = 46.dp, height = 48.dp)
             .clip(RoundedCornerShape(12.dp))
             .clickable(onClick = onClick),
     ) {
@@ -747,6 +891,7 @@ private fun PhotoControlBar(
     onToggleAuto: () -> Unit,
     onToggleStar: () -> Unit,
     onToggleFavoritesFilter: () -> Unit,
+    onEnterFullscreen: () -> Unit,
     onHide: (() -> Unit)?,
 ) {
     Row(
@@ -758,15 +903,15 @@ private fun PhotoControlBar(
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.SpaceBetween,
     ) {
-        // Left: Prev, AutoPlay, and [Hide]
+        // Left: <, Pause/Play, >
         Row(
             verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(4.dp),
+            horizontalArrangement = Arrangement.spacedBy(2.dp),
         ) {
             IconButton(
                 onClick = onPrev,
                 enabled = total > 1,
-                modifier = Modifier.size(48.dp),
+                modifier = Modifier.size(44.dp),
             ) {
                 Icon(
                     imageVector = Icons.Rounded.ChevronLeft,
@@ -777,7 +922,7 @@ private fun PhotoControlBar(
             }
             IconButton(
                 onClick = onToggleAuto,
-                modifier = Modifier.size(44.dp),
+                modifier = Modifier.size(42.dp),
             ) {
                 Icon(
                     imageVector = if (autoAdvance) Icons.Rounded.Pause else Icons.Rounded.PlayArrow,
@@ -786,32 +931,21 @@ private fun PhotoControlBar(
                     modifier = Modifier.size(22.dp),
                 )
             }
-            if (onHide != null) {
-                Surface(
-                    color = NernalColors.CardSubtle,
-                    shape = RoundedCornerShape(10.dp),
-                    border = BorderStroke(1.dp, NernalColors.Border),
-                    modifier = Modifier
-                        .height(38.dp)
-                        .clip(RoundedCornerShape(10.dp))
-                        .clickable(onClick = onHide),
-                ) {
-                    Box(
-                        modifier = Modifier.padding(horizontal = 10.dp),
-                        contentAlignment = Alignment.Center,
-                    ) {
-                        Text(
-                            text = "Hide",
-                            color = NernalColors.InkMuted,
-                            fontSize = 13.sp,
-                            fontWeight = FontWeight.Bold,
-                        )
-                    }
-                }
+            IconButton(
+                onClick = onNext,
+                enabled = total > 1,
+                modifier = Modifier.size(44.dp),
+            ) {
+                Icon(
+                    imageVector = Icons.Rounded.ChevronRight,
+                    contentDescription = "Next Photo",
+                    tint = NernalColors.Ink,
+                    modifier = Modifier.size(28.dp),
+                )
             }
         }
 
-        // Center: Photo Album & Year
+        // Center: Album name · year
         Box(
             modifier = Modifier
                 .weight(1f)
@@ -832,12 +966,11 @@ private fun PhotoControlBar(
             )
         }
 
-        // Right: Star On/Off Filter Button, Favorite Current Photo Button, Next
+        // Right: [★ Only / ☆ Off], Star, Fullscreen, Hide (collapse icon)
         Row(
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.spacedBy(4.dp),
         ) {
-            // "Star on" / "Star off" filter toggle
             Surface(
                 color = if (favoritesOnly) Color(0xFF33260F) else NernalColors.CardSubtle,
                 shape = RoundedCornerShape(10.dp),
@@ -857,12 +990,12 @@ private fun PhotoControlBar(
                 ) {
                     Icon(
                         imageVector = if (favoritesOnly) Icons.Rounded.Star else Icons.Rounded.StarOutline,
-                        contentDescription = "Star filter toggle",
+                        contentDescription = if (favoritesOnly) "Starred photos only" else "Starred filter off",
                         tint = if (favoritesOnly) NernalColors.Amber else NernalColors.InkMuted,
-                        modifier = Modifier.size(16.dp),
+                        modifier = Modifier.size(17.dp),
                     )
                     Text(
-                        text = if (favoritesOnly) "Star on" else "Star off",
+                        text = if (favoritesOnly) "Only" else "Off",
                         color = if (favoritesOnly) NernalColors.Amber else NernalColors.InkMuted,
                         fontSize = 13.sp,
                         fontWeight = FontWeight.Bold,
@@ -870,31 +1003,48 @@ private fun PhotoControlBar(
                 }
             }
 
-            // Star/Favorite Current Photo
             IconButton(
                 onClick = onToggleStar,
                 enabled = photo != null,
-                modifier = Modifier.size(48.dp),
+                modifier = Modifier.size(42.dp),
             ) {
                 Icon(
                     imageVector = if (isStarred) Icons.Rounded.Star else Icons.Rounded.StarOutline,
                     contentDescription = if (isStarred) "Remove Favorite" else "Favorite Photo",
                     tint = if (isStarred) NernalColors.Amber else NernalColors.InkMuted,
-                    modifier = Modifier.size(24.dp),
+                    modifier = Modifier.size(23.dp),
                 )
             }
 
             IconButton(
-                onClick = onNext,
-                enabled = total > 1,
-                modifier = Modifier.size(48.dp),
+                onClick = onEnterFullscreen,
+                modifier = Modifier.size(42.dp),
             ) {
                 Icon(
-                    imageVector = Icons.Rounded.ChevronRight,
-                    contentDescription = "Next Photo",
+                    imageVector = Icons.Rounded.Fullscreen,
+                    contentDescription = "Fullscreen Slideshow",
                     tint = NernalColors.Ink,
-                    modifier = Modifier.size(28.dp),
+                    modifier = Modifier.size(23.dp),
                 )
+            }
+
+            if (onHide != null) {
+                Surface(
+                    onClick = onHide,
+                    color = NernalColors.CardInner,
+                    shape = RoundedCornerShape(10.dp),
+                    border = BorderStroke(1.dp, NernalColors.BorderSubtle),
+                    modifier = Modifier.size(42.dp),
+                ) {
+                    Box(contentAlignment = Alignment.Center) {
+                        Icon(
+                            imageVector = Icons.Rounded.LastPage,
+                            contentDescription = "Hide Photos",
+                            tint = NernalColors.InkMuted,
+                            modifier = Modifier.size(22.dp),
+                        )
+                    }
+                }
             }
         }
     }
@@ -980,6 +1130,26 @@ fun FullscreenSlideshowOverlay(
                 onNextPhoto = onNext,
                 onOpenAccount = onOpenAccount,
             )
+            if (state.isCurrentStarred && state.currentPhoto != null) {
+                Surface(
+                    color = Color.Black.copy(alpha = 0.65f),
+                    shape = CircleShape,
+                    border = BorderStroke(1.dp, NernalColors.Amber.copy(alpha = 0.75f)),
+                    modifier = Modifier
+                        .align(Alignment.TopEnd)
+                        .padding(16.dp)
+                        .size(40.dp),
+                ) {
+                    Box(contentAlignment = Alignment.Center) {
+                        Icon(
+                            imageVector = Icons.Rounded.Star,
+                            contentDescription = "Favorite photo",
+                            tint = NernalColors.Amber,
+                            modifier = Modifier.size(22.dp),
+                        )
+                    }
+                }
+            }
         }
 
         Surface(
@@ -1082,6 +1252,9 @@ fun DimOverlay(
     weather: WeatherData?,
     nextEvent: ReminderItem? = null,
     todayKey: String? = null,
+    cameraWakeActive: Boolean = false,
+    isManualNightMode: Boolean = false,
+    alarmConfig: AlarmConfig = AlarmConfig(),
     onWake: () -> Unit,
 ) {
     // Pure opaque solid black night veil so background dashboard cards do not bleed through
@@ -1181,10 +1354,41 @@ fun DimOverlay(
 
                 Spacer(modifier = Modifier.height(4.dp))
                 Text(
-                    text = "Tap anywhere to wake Onnkiosk",
+                    text = when {
+                        isManualNightMode -> "Night mode is on · Tap anywhere to turn off"
+                        cameraWakeActive -> "Tap anywhere or walk up to wake ${BuildConfig.APP_DISPLAY_NAME}"
+                        else -> "Tap anywhere to wake ${BuildConfig.APP_DISPLAY_NAME}"
+                    },
                     color = NernalColors.InkMuted.copy(alpha = 0.72f),
                     fontSize = 13.sp,
                 )
+
+                if (alarmConfig.enabled) {
+                    Surface(
+                        color = NernalColors.CardInner,
+                        shape = RoundedCornerShape(10.dp),
+                        border = BorderStroke(1.dp, NernalColors.Gold.copy(alpha = 0.45f)),
+                    ) {
+                        Row(
+                            modifier = Modifier.padding(horizontal = 12.dp, vertical = 6.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(6.dp),
+                        ) {
+                            Icon(
+                                imageVector = Icons.Rounded.Alarm,
+                                contentDescription = null,
+                                tint = NernalColors.Gold,
+                                modifier = Modifier.size(16.dp),
+                            )
+                            Text(
+                                text = "Alarm set for ${alarmConfig.formattedTime}",
+                                color = NernalColors.Gold,
+                                fontSize = 13.sp,
+                                fontWeight = FontWeight.SemiBold,
+                            )
+                        }
+                    }
+                }
             }
         }
     }
@@ -1200,9 +1404,23 @@ fun SettingsDialog(
     onDimBrightnessChange: (Float) -> Unit,
     onGlobalBrightnessChange: (Float) -> Unit,
     onWakeOnEventReminderChange: (Boolean) -> Unit,
+    onCameraMotionWakeChange: (Boolean) -> Unit = {},
+    onAutoSleepMinutesChange: (Int) -> Unit = {},
+    onAudibleEventAlertsChange: (Boolean) -> Unit = {},
+    onSaveGeminiApiKey: (String) -> Unit = {},
+    onStartGeminiKeyLan: () -> Unit = {},
+    onStopGeminiKeyLan: () -> Unit = {},
+    onScanGeminiKeyTasks: () -> Unit = {},
+    onImportGeminiKeyCandidate: (GeminiKeyCandidate, Boolean) -> Unit = { _, _ -> },
+    onTestAudio: () -> Unit = {},
+    onUpdateAlarmConfig: (AlarmConfig) -> Unit = {},
+    onTestAlarm: () -> Unit = {},
+    onPiSyncEnabledChange: (Boolean) -> Unit = {},
+    onOpenPiSync: () -> Unit = {},
     onCalendarViewModeChange: (CalendarViewMode) -> Unit = {},
     onCalendarPrimaryModeChange: (Boolean) -> Unit = {},
     onOpenWifiSettings: () -> Unit = {},
+    onRefreshAlbums: () -> Unit = {},
     onRemoveCustomSharedUrl: (String) -> Unit,
     onOpenGoogleAccount: () -> Unit,
     onOpenHelp: () -> Unit = {},
@@ -1302,23 +1520,24 @@ fun SettingsDialog(
                     }
                 }
 
-                // Shortcut to Device Wi-Fi Settings
-                Surface(
-                    color = NernalColors.CardInner,
-                    shape = RoundedCornerShape(14.dp),
-                    border = BorderStroke(1.dp, NernalColors.Accent.copy(alpha = 0.5f)),
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .clickable(onClick = onOpenWifiSettings),
+                // Shortcut to Device Wi-Fi & Optional Default Home App
+                val settingsContext = LocalContext.current
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
                 ) {
-                    Row(
+                    Surface(
+                        color = NernalColors.CardInner,
+                        shape = RoundedCornerShape(14.dp),
+                        border = BorderStroke(1.dp, NernalColors.Accent.copy(alpha = 0.5f)),
                         modifier = Modifier
-                            .fillMaxWidth()
-                            .padding(14.dp),
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.SpaceBetween,
+                            .weight(1f)
+                            .clickable(onClick = onOpenWifiSettings),
                     ) {
                         Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(14.dp),
                             verticalAlignment = Alignment.CenterVertically,
                             horizontalArrangement = Arrangement.spacedBy(10.dp),
                         ) {
@@ -1326,7 +1545,7 @@ fun SettingsDialog(
                                 imageVector = Icons.Rounded.Wifi,
                                 contentDescription = null,
                                 tint = NernalColors.Accent,
-                                modifier = Modifier.size(24.dp),
+                                modifier = Modifier.size(22.dp),
                             )
                             Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
                                 Text(
@@ -1336,18 +1555,464 @@ fun SettingsDialog(
                                     fontWeight = FontWeight.Bold,
                                 )
                                 Text(
-                                    text = "Connect to Wi-Fi networks or change Wi-Fi settings",
+                                    text = "Manage Wi-Fi networks",
                                     color = NernalColors.InkMuted,
                                     fontSize = 12.sp,
                                 )
                             }
                         }
-                        Text(
-                            text = "Open Wi-Fi →",
-                            color = NernalColors.Accent,
-                            fontSize = 13.sp,
-                            fontWeight = FontWeight.Bold,
+                    }
+
+                    if (BuildConfig.IS_NERNAL_FAMILY_BUILD) {
+                        Surface(
+                            color = NernalColors.CardInner,
+                            shape = RoundedCornerShape(14.dp),
+                            border = BorderStroke(1.dp, NernalColors.Border),
+                            modifier = Modifier
+                                .weight(1f)
+                                .clickable {
+                                    onDismiss()
+                                    openDeviceHomeSettings(settingsContext)
+                                },
+                        ) {
+                            Row(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .padding(14.dp),
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.spacedBy(10.dp),
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Rounded.Settings,
+                                    contentDescription = null,
+                                    tint = NernalColors.Gold,
+                                    modifier = Modifier.size(22.dp),
+                                )
+                                Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                                    Text(
+                                        text = "Default Home App",
+                                        color = NernalColors.Ink,
+                                        fontSize = 14.sp,
+                                        fontWeight = FontWeight.Bold,
+                                    )
+                                    Text(
+                                        text = "Kiosk launcher picker",
+                                        color = NernalColors.InkMuted,
+                                        fontSize = 12.sp,
+                                    )
+                                }
+                            }
+                        }
+                    }
+                }
+
+                HorizontalDivider(color = NernalColors.BorderSubtle)
+
+                // Smart Hardware, Voice & Gemini AI (Auto-detected per device)
+                Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                    Text(
+                        text = "Detected Hardware & Smart Features",
+                        color = NernalColors.Gold,
+                        fontSize = 14.sp,
+                        fontWeight = FontWeight.SemiBold,
+                    )
+
+                    Row(
+                        modifier = Modifier.horizontalScroll(rememberScrollState()),
+                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    ) {
+                        HardwareBadgeChip("Camera", state.capabilities.hasCamera)
+                        HardwareBadgeChip("Microphone", state.capabilities.hasMicrophone)
+                        HardwareBadgeChip("Speakers", state.capabilities.hasAudioOutput)
+                        HardwareBadgeChip("On-Device Speech", state.capabilities.hasOnDeviceSpeech)
+                    }
+
+                    if (state.capabilities.hasCamera) {
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                        ) {
+                            Column(
+                                modifier = Modifier
+                                    .weight(1f)
+                                    .padding(end = 12.dp),
+                                verticalArrangement = Arrangement.spacedBy(2.dp),
+                            ) {
+                                Text(
+                                    text = "Camera Motion Wake",
+                                    color = NernalColors.Ink,
+                                    fontSize = 14.sp,
+                                    fontWeight = FontWeight.SemiBold,
+                                )
+                                Text(
+                                    text = state.cameraError ?: "Automatically wakes the dimmed screen when movement is detected",
+                                    color = if (state.cameraError != null) NernalColors.Amber else NernalColors.InkMuted,
+                                    fontSize = 12.sp,
+                                )
+                            }
+                            Switch(
+                                checked = state.cameraMotionWakeEnabled,
+                                onCheckedChange = onCameraMotionWakeChange,
+                                colors = SwitchDefaults.colors(
+                                    checkedThumbColor = NernalColors.Bg,
+                                    checkedTrackColor = NernalColors.Emerald,
+                                    uncheckedThumbColor = NernalColors.InkMuted,
+                                    uncheckedTrackColor = NernalColors.CardSubtle,
+                                ),
+                            )
+                        }
+
+                        Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                            Text(
+                                text = "Auto-Sleep After Inactivity",
+                                color = NernalColors.Ink,
+                                fontSize = 13.sp,
+                                fontWeight = FontWeight.SemiBold,
+                            )
+                            Row(
+                                modifier = Modifier.horizontalScroll(rememberScrollState()),
+                                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                            ) {
+                                for (mins in listOf(0, 5, 10, 15, 30)) {
+                                    SettingChip(
+                                        label = if (mins == 0) "Off" else "${mins}m",
+                                        selected = state.autoSleepMinutes == mins,
+                                        onClick = { onAutoSleepMinutesChange(mins) },
+                                    )
+                                }
+                            }
+                        }
+                    }
+
+                    if (state.capabilities.hasAudioOutput) {
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                        ) {
+                            Column(
+                                modifier = Modifier
+                                    .weight(1f)
+                                    .padding(end = 12.dp),
+                                verticalArrangement = Arrangement.spacedBy(2.dp),
+                            ) {
+                                Text(
+                                    text = "Audible Event Alerts & Chime",
+                                    color = NernalColors.Ink,
+                                    fontSize = 14.sp,
+                                    fontWeight = FontWeight.SemiBold,
+                                )
+                                Text(
+                                    text = "Plays a warm chime and announces upcoming events aloud",
+                                    color = NernalColors.InkMuted,
+                                    fontSize = 12.sp,
+                                )
+                            }
+                            Switch(
+                                checked = state.audibleEventAlertsEnabled,
+                                onCheckedChange = onAudibleEventAlertsChange,
+                                colors = SwitchDefaults.colors(
+                                    checkedThumbColor = NernalColors.Bg,
+                                    checkedTrackColor = NernalColors.Gold,
+                                    uncheckedThumbColor = NernalColors.InkMuted,
+                                    uncheckedTrackColor = NernalColors.CardSubtle,
+                                ),
+                            )
+                        }
+
+                        OutlinedButton(
+                            onClick = onTestAudio,
+                            border = BorderStroke(1.dp, NernalColors.Border),
+                            shape = RoundedCornerShape(10.dp),
+                            modifier = Modifier.height(44.dp),
+                        ) {
+                            Icon(
+                                imageVector = Icons.Rounded.VolumeUp,
+                                contentDescription = null,
+                                tint = NernalColors.Gold,
+                                modifier = Modifier.size(18.dp),
+                            )
+                            Spacer(Modifier.width(8.dp))
+                            Text("Test Chime & Voice", color = NernalColors.Ink, fontSize = 13.sp, fontWeight = FontWeight.SemiBold)
+                        }
+                    }
+
+                    if (state.capabilities.hasVoiceInputAndOutput || state.capabilities.hasAudioOutput) {
+                        var draftGeminiKey by remember(state.geminiApiKey) { mutableStateOf(state.geminiApiKey) }
+                        var showKey by remember { mutableStateOf(false) }
+
+                        Surface(
+                            color = NernalColors.CardInner,
+                            shape = RoundedCornerShape(12.dp),
+                            border = BorderStroke(1.dp, NernalColors.Gold.copy(alpha = 0.45f)),
+                            modifier = Modifier.fillMaxWidth(),
+                        ) {
+                            Column(
+                                modifier = Modifier.padding(12.dp),
+                                verticalArrangement = Arrangement.spacedBy(8.dp),
+                            ) {
+                                Row(
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                                ) {
+                                    Icon(
+                                        imageVector = Icons.Rounded.AutoAwesome,
+                                        contentDescription = null,
+                                        tint = NernalColors.Gold,
+                                        modifier = Modifier.size(20.dp),
+                                    )
+                                    Text(
+                                        text = "Gemini API Key (Optional — Unlocks \"Super ${BuildConfig.APP_DISPLAY_NAME}\")",
+                                        color = NernalColors.Gold,
+                                        fontSize = 13.sp,
+                                        fontWeight = FontWeight.Bold,
+                                    )
+                                }
+                                Text(
+                                    text = "On-device speech already handles time, weather, schedule, tasks, and screen controls. Add your Gemini API key for conversational AI, camera vision (\"What am I holding?\"), and Memory Book recipes.",
+                                    color = NernalColors.InkMuted,
+                                    fontSize = 12.sp,
+                                    lineHeight = 17.sp,
+                                )
+                                OutlinedTextField(
+                                    value = draftGeminiKey,
+                                    onValueChange = { draftGeminiKey = it },
+                                    label = { Text("Gemini API Key (AIza...)") },
+                                    singleLine = true,
+                                    visualTransformation = if (showKey) VisualTransformation.None else PasswordVisualTransformation(),
+                                    trailingIcon = {
+                                        IconButton(onClick = { showKey = !showKey }) {
+                                            Icon(
+                                                imageVector = if (showKey) Icons.Rounded.VisibilityOff else Icons.Rounded.Visibility,
+                                                contentDescription = if (showKey) "Hide key" else "Show key",
+                                                tint = NernalColors.InkMuted,
+                                            )
+                                        }
+                                    },
+                                    colors = OutlinedTextFieldDefaults.colors(
+                                        focusedContainerColor = NernalColors.Bg,
+                                        unfocusedContainerColor = NernalColors.Bg,
+                                        focusedBorderColor = NernalColors.Gold,
+                                        unfocusedBorderColor = NernalColors.Border,
+                                        focusedTextColor = NernalColors.Ink,
+                                        unfocusedTextColor = NernalColors.Ink,
+                                    ),
+                                    modifier = Modifier.fillMaxWidth(),
+                                )
+                                Row(
+                                    modifier = Modifier.horizontalScroll(rememberScrollState()),
+                                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                                ) {
+                                    Button(
+                                        onClick = { onSaveGeminiApiKey(draftGeminiKey) },
+                                        colors = ButtonDefaults.buttonColors(containerColor = NernalColors.Gold),
+                                        shape = RoundedCornerShape(10.dp),
+                                        modifier = Modifier.height(44.dp),
+                                    ) {
+                                        Text("Save Key", color = NernalColors.Bg, fontWeight = FontWeight.Bold, fontSize = 13.sp)
+                                    }
+                                    OutlinedButton(
+                                        onClick = {
+                                            if (state.geminiKeyLanUrl == null) onStartGeminiKeyLan() else onStopGeminiKeyLan()
+                                        },
+                                        border = BorderStroke(1.dp, NernalColors.Accent.copy(alpha = 0.7f)),
+                                        shape = RoundedCornerShape(10.dp),
+                                        modifier = Modifier.height(44.dp),
+                                    ) {
+                                        Icon(
+                                            imageVector = Icons.Rounded.Wifi,
+                                            contentDescription = null,
+                                            tint = NernalColors.Accent,
+                                            modifier = Modifier.size(16.dp),
+                                        )
+                                        Spacer(Modifier.width(6.dp))
+                                        Text(
+                                            text = if (state.geminiKeyLanUrl == null) "Send from Phone/PC" else "Stop Wi-Fi Receiver",
+                                            color = NernalColors.Accent,
+                                            fontWeight = FontWeight.SemiBold,
+                                            fontSize = 13.sp,
+                                        )
+                                    }
+                                    if (state.authState == GoogleAuthState.SIGNED_IN) {
+                                        OutlinedButton(
+                                            onClick = onScanGeminiKeyTasks,
+                                            border = BorderStroke(1.dp, NernalColors.Gold.copy(alpha = 0.6f)),
+                                            shape = RoundedCornerShape(10.dp),
+                                            modifier = Modifier.height(44.dp),
+                                        ) {
+                                            Text("Pick from Google Tasks", color = NernalColors.Gold, fontWeight = FontWeight.SemiBold, fontSize = 13.sp)
+                                        }
+                                    }
+                                    if (state.geminiApiKey.isNotBlank()) {
+                                        OutlinedButton(
+                                            onClick = {
+                                                draftGeminiKey = ""
+                                                onSaveGeminiApiKey("")
+                                            },
+                                            border = BorderStroke(1.dp, NernalColors.Border),
+                                            shape = RoundedCornerShape(10.dp),
+                                            modifier = Modifier.height(44.dp),
+                                        ) {
+                                            Text("Clear Key", color = NernalColors.InkMuted, fontSize = 13.sp)
+                                        }
+                                    }
+                                }
+
+                                state.geminiKeyLanUrl?.let { lanUrl ->
+                                    Surface(
+                                        color = NernalColors.Bg,
+                                        shape = RoundedCornerShape(10.dp),
+                                        border = BorderStroke(1.dp, NernalColors.Accent.copy(alpha = 0.6f)),
+                                        modifier = Modifier.fillMaxWidth(),
+                                    ) {
+                                        Row(
+                                            modifier = Modifier.padding(12.dp),
+                                            verticalAlignment = Alignment.CenterVertically,
+                                            horizontalArrangement = Arrangement.spacedBy(14.dp),
+                                        ) {
+                                            QrCodeImage(content = lanUrl, size = 112.dp)
+                                            Column(
+                                                modifier = Modifier.weight(1f),
+                                                verticalArrangement = Arrangement.spacedBy(4.dp),
+                                            ) {
+                                                Text(
+                                                    text = "Scan QR or open on your phone/laptop (same Wi-Fi):",
+                                                    color = NernalColors.InkMuted,
+                                                    fontSize = 12.sp,
+                                                )
+                                                Text(
+                                                    text = lanUrl,
+                                                    color = NernalColors.Accent,
+                                                    fontSize = 15.sp,
+                                                    fontWeight = FontWeight.Bold,
+                                                )
+                                            }
+                                        }
+                                    }
+                                }
+
+                                state.geminiKeyScanNotice?.let { notice ->
+                                    Text(
+                                        text = notice,
+                                        color = NernalColors.WarmAmber,
+                                        fontSize = 12.sp,
+                                        fontWeight = FontWeight.Medium,
+                                    )
+                                }
+
+                                if (state.geminiKeyCandidates.isNotEmpty()) {
+                                    Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                                        for (candidate in state.geminiKeyCandidates) {
+                                            Surface(
+                                                color = NernalColors.Bg,
+                                                shape = RoundedCornerShape(10.dp),
+                                                border = BorderStroke(1.dp, NernalColors.Gold.copy(alpha = 0.55f)),
+                                                modifier = Modifier.fillMaxWidth(),
+                                            ) {
+                                                Row(
+                                                    modifier = Modifier
+                                                        .fillMaxWidth()
+                                                        .padding(horizontal = 10.dp, vertical = 8.dp),
+                                                    verticalAlignment = Alignment.CenterVertically,
+                                                    horizontalArrangement = Arrangement.SpaceBetween,
+                                                ) {
+                                                    Column(modifier = Modifier.weight(1f)) {
+                                                        Text(
+                                                            text = candidate.taskTitle,
+                                                            color = NernalColors.Ink,
+                                                            fontSize = 13.sp,
+                                                            fontWeight = FontWeight.Bold,
+                                                            maxLines = 1,
+                                                            overflow = TextOverflow.Ellipsis,
+                                                        )
+                                                        Text(
+                                                            text = "${candidate.maskedKey} · removes task after import",
+                                                            color = NernalColors.InkMuted,
+                                                            fontSize = 11.sp,
+                                                        )
+                                                    }
+                                                    Button(
+                                                        onClick = { onImportGeminiKeyCandidate(candidate, true) },
+                                                        colors = ButtonDefaults.buttonColors(containerColor = NernalColors.Gold),
+                                                        shape = RoundedCornerShape(8.dp),
+                                                        modifier = Modifier.height(40.dp),
+                                                    ) {
+                                                        Text("Use Key", color = NernalColors.Bg, fontWeight = FontWeight.Bold, fontSize = 12.sp)
+                                                    }
+                                                }
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+
+                HorizontalDivider(color = NernalColors.BorderSubtle)
+
+                // Morning Alarm & Daily Brief
+                MorningAlarmSettingsSection(
+                    alarmConfig = state.alarmConfig,
+                    onUpdateAlarmConfig = onUpdateAlarmConfig,
+                    onTestAlarm = onTestAlarm,
+                )
+
+                HorizontalDivider(color = NernalColors.BorderSubtle)
+
+                // Optional Nernal Raspberry Pi Home Hub Sync
+                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                    ) {
+                        Column(
+                            modifier = Modifier
+                                .weight(1f)
+                                .padding(end = 12.dp),
+                            verticalArrangement = Arrangement.spacedBy(2.dp),
+                        ) {
+                            Text(
+                                text = "Nernal Raspberry Pi Sync (Optional)",
+                                color = NernalColors.Ink,
+                                fontSize = 14.sp,
+                                fontWeight = FontWeight.SemiBold,
+                            )
+                            Text(
+                                text = "Sync reminders, Memory Book, and ★ favorites with a Nernal Pi server on your Wi-Fi",
+                                color = NernalColors.InkMuted,
+                                fontSize = 12.sp,
+                            )
+                        }
+                        Switch(
+                            checked = state.piSyncEnabled,
+                            onCheckedChange = onPiSyncEnabledChange,
+                            colors = SwitchDefaults.colors(
+                                checkedThumbColor = NernalColors.Bg,
+                                checkedTrackColor = NernalColors.Emerald,
+                                uncheckedThumbColor = NernalColors.InkMuted,
+                                uncheckedTrackColor = NernalColors.CardSubtle,
+                            ),
                         )
+                    }
+                    if (state.piSyncEnabled) {
+                        OutlinedButton(
+                            onClick = onOpenPiSync,
+                            border = BorderStroke(1.dp, NernalColors.Emerald.copy(alpha = 0.6f)),
+                            shape = RoundedCornerShape(10.dp),
+                            modifier = Modifier.height(44.dp),
+                        ) {
+                            Icon(
+                                imageVector = Icons.Rounded.Refresh,
+                                contentDescription = null,
+                                tint = NernalColors.Emerald,
+                                modifier = Modifier.size(18.dp),
+                            )
+                            Spacer(Modifier.width(8.dp))
+                            Text("Configure Pi Sync (${state.piBaseUrl})", color = NernalColors.Emerald, fontSize = 13.sp, fontWeight = FontWeight.SemiBold)
+                        }
                     }
                 }
 
@@ -1454,12 +2119,39 @@ fun SettingsDialog(
 
                 // Manage Imported Photo Albums
                 Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                    Text(
-                        text = "Manage Imported Photo Albums",
-                        color = NernalColors.Gold,
-                        fontSize = 14.sp,
-                        fontWeight = FontWeight.SemiBold,
-                    )
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                    ) {
+                        Text(
+                            text = "Manage Imported Photo Albums",
+                            color = NernalColors.Gold,
+                            fontSize = 14.sp,
+                            fontWeight = FontWeight.SemiBold,
+                        )
+                        OutlinedButton(
+                            onClick = onRefreshAlbums,
+                            enabled = !state.albumsSyncing,
+                            border = BorderStroke(1.dp, NernalColors.Border),
+                            shape = RoundedCornerShape(8.dp),
+                            modifier = Modifier.height(38.dp),
+                        ) {
+                            Icon(
+                                imageVector = Icons.Rounded.Refresh,
+                                contentDescription = null,
+                                tint = NernalColors.Gold,
+                                modifier = Modifier.size(16.dp),
+                            )
+                            Spacer(Modifier.width(6.dp))
+                            Text(
+                                text = if (state.albumsSyncing) "Syncing..." else "Refresh Photos",
+                                color = NernalColors.Gold,
+                                fontSize = 12.sp,
+                                fontWeight = FontWeight.SemiBold,
+                            )
+                        }
+                    }
 
                     Surface(
                         color = NernalColors.CardInner,
@@ -1481,7 +2173,7 @@ fun SettingsDialog(
                                 text = "1. Open Google Photos on your phone or computer.\n" +
                                     "2. Open any album, tap Share and copy the link (e.g. photos.app.goo.gl/...).\n" +
                                     "3. Add a Google Task with the album link in the title or notes (e.g. 'Photos: https://photos.app.goo.gl/...').\n" +
-                                    "4. Onnkiosk will auto-detect the link, import all photos into your slideshow rotation, and automatically complete the task!",
+                                    "4. ${BuildConfig.APP_DISPLAY_NAME} will auto-detect the link, import all photos into your slideshow rotation, and automatically complete the task!",
                                 color = NernalColors.Ink,
                                 fontSize = 12.sp,
                                 lineHeight = 17.sp,
@@ -1938,7 +2630,7 @@ fun UserGuideDialog(
                             modifier = Modifier.size(26.dp),
                         )
                         Text(
-                            text = "Onnkiosk User Guide",
+                            text = "${BuildConfig.APP_DISPLAY_NAME} User Guide",
                             fontSize = 20.sp,
                             fontWeight = FontWeight.Bold,
                             color = NernalColors.Ink,
@@ -1975,24 +2667,25 @@ fun UserGuideDialog(
                     verticalArrangement = Arrangement.spacedBy(12.dp),
                 ) {
                     UserGuideSection(
-                        title = "1. Overview & Navigation",
-                        content = "Onnkiosk is an ambient touchscreen household dashboard signed directly into your Google account on-device. Household members at the counter never need to log in.\n" +
-                            "• Left Wing: Live clock, precision local weather, NWS severe weather alerts, Doppler radar, and Home Hub (calendar & tasks).\n" +
-                            "• Right Wing: High-resolution photo slideshow, favorite memories, and frame controls."
+                        title = "1. Overview & Device-Adaptive Features",
+                        content = "${BuildConfig.APP_DISPLAY_NAME} automatically detects your device's hardware and unlocks matching capabilities:\n" +
+                            "• Left Wing: Live clock, local weather, NWS severe weather alerts, Doppler radar, and Home Hub (calendar & tasks).\n" +
+                            "• Right Wing: High-resolution photo slideshow, favorite memories, and adaptive controls (Speak, Camera Wake, Memory Book, Pi Sync)."
                     )
 
                     UserGuideSection(
                         title = "2. Clock, Weather & Doppler Radar",
-                        content = "• The top card shows time, date, temperature, rain chance, and a 4-day forecast. Active NWS weather warnings appear as a clickable Alert pill.\n" +
-                            "• Tap 'Radar' in the weather card to open animated pan/zoom Doppler radar with frame scrubbing."
+                        content = "• The top card shows time and today's day/date at equal large size with location underneath, current temperature, today's high/low, and upcoming forecast cards. Tap the chevron icon to collapse or expand weather.\n" +
+                            "• Active NWS warnings appear as a red warning icon by the date; tap to view details and dismiss individual alerts.\n" +
+                            "• Tap the Radar icon right beside the current temperature to open animated pan/zoom Doppler radar."
                     )
 
                     UserGuideSection(
                         title = "3. Home Hub: Calendar & Tasks",
                         content = "• All Tab: Chronological list of upcoming events and active tasks.\n" +
-                            "• Events Tab: Tap 'Events' to switch between Itinerary, 3-Day, Week, and Month views. Tap any event for details.\n" +
+                            "• Events Tab: Tap 'Events' to switch between Itinerary, 3-Day, Week, and Month views. In Month view, tap any day to pop out its events and tasks, then tap an event for full details.\n" +
                             "• Tasks Tab: Focused view for your Google Task lists with checkboxes to mark items done.\n" +
-                            "• Add (+) Button: Tap the '+' button in the top right by Tasks to quickly add a Task or Event.\n" +
+                            "• Add (+) Button: Tap the '+' button in the top right to quickly add a Task or Event.\n" +
                             "• Filter Dropdown: Filter individual task lists per tab, and use the 5-second Undo bar if you delete an item by mistake."
                     )
 
@@ -2006,20 +2699,26 @@ fun UserGuideDialog(
                     UserGuideSection(
                         title = "5. Photo Slideshow, Swiping & Favorites",
                         content = "• Swipe left or right on the photo stage (normal or fullscreen) to browse, or tap a photo to inspect fullscreen for 10 seconds.\n" +
-                            "• Tap the Star (★) button to mark Favorites, 'Favorites' in the top bar to cycle starred photos, or Fullscreen for dedicated 30-minute viewing."
+                            "• At the bottom of the photo card: tap ★ to favorite the current photo, tap [★ Only / ☆ Off] to filter starred photos, tap Fullscreen for dedicated 30-minute viewing, or tap Hide to expand Calendar full-screen (tap [Photos] in the top bar to bring photos back)."
                     )
 
                     UserGuideSection(
                         title = "6. Google Photos: Picker & Shared Links",
-                        content = "• Google Photos Picker: In Google Account → Photos, launch Picker to securely select specific photos straight from your library (cached locally on-frame).\n" +
-                            "• Shared Links: Add a photos.app.goo.gl album link directly in Google Account, OR include the link in a Google Task title/notes and Onnkiosk will import it automatically."
+                        content = "• Google Photos Picker: In Settings → Google Account → Photos, launch Picker to securely select specific photos straight from your library (cached locally on-frame).\n" +
+                            "• Shared Links: Add a photos.app.goo.gl album link directly in Google Account, OR include the link in a Google Task title/notes and ${BuildConfig.APP_DISPLAY_NAME} will import it automatically."
                     )
 
                     UserGuideSection(
-                        title = "7. Screen Dimming, Brightness & Event Alerts",
-                        content = "• Tap 'Dim Screen' for ambient night mode showing time, weather, and the next upcoming event. Tap anywhere to wake back up.\n" +
-                            "• Adjust Screen Brightness and Night Dim levels in Settings.\n" +
-                            "• 'Wake on Event Reminder' alerts 1–5 minutes before a scheduled event and automatically closes once the event time starts."
+                        title = "7. Night Mode, Camera Motion Wake & Event Alerts",
+                        content = "• Tap the Moon icon (Night Mode) in the top right for pure black ambient night mode — Night Mode stays on until you tap the screen to turn it off.\n" +
+                            "• On devices with a front camera, Auto-Sleep dims after inactivity and the Eye icon wakes the screen hands-free when someone walks up.\n" +
+                            "• 'Wake on Event Reminder' alerts 1–5 minutes before a scheduled event and plays a chime + spoken announcement on devices with speakers."
+                    )
+
+                    UserGuideSection(
+                        title = "8. Voice Assistant & Super ${BuildConfig.APP_DISPLAY_NAME} (Gemini AI)",
+                        content = "• On devices with a microphone and speakers, tap the outlined 'Speak' button to ask for time, weather, morning briefing, schedule/tasks, or control photos and radar using on-device speech — no API key needed.\n" +
+                            "• Add an optional Gemini API key in Settings (type it, send from your phone/laptop over Wi-Fi, or pick a key from Google Tasks) to unlock conversational AI, camera vision ('What am I holding?', 'Read this'), and the voice-managed Memory Book."
                     )
                 }
 
@@ -2285,6 +2984,217 @@ private fun UserGuideSection(title: String, content: String) {
                 fontSize = 12.sp,
                 lineHeight = 17.sp,
             )
+        }
+    }
+}
+
+@Composable
+private fun HardwareBadgeChip(label: String, available: Boolean) {
+    Surface(
+        color = if (available) NernalColors.Emerald.copy(alpha = 0.14f) else NernalColors.CardInner,
+        shape = RoundedCornerShape(10.dp),
+        border = BorderStroke(
+            1.dp,
+            if (available) NernalColors.Emerald.copy(alpha = 0.6f) else NernalColors.BorderSubtle,
+        ),
+    ) {
+        Row(
+            modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(6.dp),
+        ) {
+            Box(
+                modifier = Modifier
+                    .size(7.dp)
+                    .clip(CircleShape)
+                    .background(if (available) NernalColors.Emerald else NernalColors.InkMuted.copy(alpha = 0.4f)),
+            )
+            Text(
+                text = label,
+                color = if (available) NernalColors.Ink else NernalColors.InkMuted,
+                fontSize = 12.sp,
+                fontWeight = FontWeight.SemiBold,
+            )
+        }
+    }
+}
+
+@Composable
+private fun MorningAlarmSettingsSection(
+    alarmConfig: AlarmConfig,
+    onUpdateAlarmConfig: (AlarmConfig) -> Unit,
+    onTestAlarm: () -> Unit,
+) {
+    Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.SpaceBetween,
+        ) {
+            Row(
+                modifier = Modifier.weight(1f).padding(end = 12.dp),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(10.dp),
+            ) {
+                Icon(
+                    imageVector = Icons.Rounded.Alarm,
+                    contentDescription = null,
+                    tint = NernalColors.Gold,
+                    modifier = Modifier.size(22.dp),
+                )
+                Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                    Text(
+                        text = "Morning Alarm & Daily Brief",
+                        color = NernalColors.Ink,
+                        fontSize = 14.sp,
+                        fontWeight = FontWeight.SemiBold,
+                    )
+                    Text(
+                        text = "Wakes Night Mode at ${alarmConfig.formattedTime} and reads your weather & day",
+                        color = NernalColors.InkMuted,
+                        fontSize = 12.sp,
+                    )
+                }
+            }
+            Switch(
+                checked = alarmConfig.enabled,
+                onCheckedChange = { onUpdateAlarmConfig(alarmConfig.copy(enabled = it)) },
+                colors = SwitchDefaults.colors(
+                    checkedThumbColor = NernalColors.Bg,
+                    checkedTrackColor = NernalColors.Gold,
+                    uncheckedThumbColor = NernalColors.InkMuted,
+                    uncheckedTrackColor = NernalColors.CardSubtle,
+                ),
+            )
+        }
+
+        // Time steppers: Hour (- / +), Minute (-5 / +5), AM/PM toggle, Test button
+        val isPm = alarmConfig.hour24 >= 12
+        val hour12 = when {
+            alarmConfig.hour24 == 0 -> 12
+            alarmConfig.hour24 > 12 -> alarmConfig.hour24 - 12
+            else -> alarmConfig.hour24
+        }
+        Row(
+            modifier = Modifier.horizontalScroll(rememberScrollState()),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
+        ) {
+            SettingStepperPill(
+                label = "Hr",
+                valueText = hour12.toString(),
+                onDecrement = {
+                    val prev = (alarmConfig.hour24 + 23) % 24
+                    onUpdateAlarmConfig(alarmConfig.copy(hour24 = prev))
+                },
+                onIncrement = {
+                    val next = (alarmConfig.hour24 + 1) % 24
+                    onUpdateAlarmConfig(alarmConfig.copy(hour24 = next))
+                },
+            )
+            SettingStepperPill(
+                label = "Min",
+                valueText = alarmConfig.minute.toString().padStart(2, '0'),
+                onDecrement = {
+                    val prev = (alarmConfig.minute + 55) % 60
+                    onUpdateAlarmConfig(alarmConfig.copy(minute = prev))
+                },
+                onIncrement = {
+                    val next = (alarmConfig.minute + 5) % 60
+                    onUpdateAlarmConfig(alarmConfig.copy(minute = next))
+                },
+            )
+            SettingChip(
+                label = if (isPm) "PM" else "AM",
+                selected = true,
+                onClick = {
+                    val toggled = if (isPm) alarmConfig.hour24 - 12 else alarmConfig.hour24 + 12
+                    onUpdateAlarmConfig(alarmConfig.copy(hour24 = toggled))
+                },
+            )
+            OutlinedButton(
+                onClick = onTestAlarm,
+                border = BorderStroke(1.dp, NernalColors.Gold.copy(alpha = 0.6f)),
+                shape = RoundedCornerShape(12.dp),
+                modifier = Modifier.height(48.dp),
+            ) {
+                Text("Test Alarm", color = NernalColors.Gold, fontSize = 13.sp, fontWeight = FontWeight.Bold)
+            }
+        }
+
+        // Day-of-week chips (1=Mon .. 7=Sun)
+        Row(
+            modifier = Modifier.horizontalScroll(rememberScrollState()),
+            horizontalArrangement = Arrangement.spacedBy(6.dp),
+        ) {
+            val days = listOf(7 to "Su", 1 to "Mo", 2 to "Tu", 3 to "We", 4 to "Th", 5 to "Fr", 6 to "Sa")
+            for ((dayNum, dayLabel) in days) {
+                val active = dayNum in alarmConfig.daysOfWeek
+                SettingChip(
+                    label = dayLabel,
+                    selected = active,
+                    onClick = {
+                        val next = if (active) alarmConfig.daysOfWeek - dayNum else alarmConfig.daysOfWeek + dayNum
+                        if (next.isNotEmpty()) {
+                            onUpdateAlarmConfig(alarmConfig.copy(daysOfWeek = next))
+                        }
+                    },
+                )
+            }
+        }
+
+        // Daily Brief timing
+        Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+            Text(
+                text = "Morning Daily Brief",
+                color = NernalColors.InkMuted,
+                fontSize = 12.sp,
+                fontWeight = FontWeight.SemiBold,
+            )
+            Row(
+                modifier = Modifier.horizontalScroll(rememberScrollState()),
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+            ) {
+                for (timing in AlarmBriefTiming.entries) {
+                    SettingChip(
+                        label = timing.label,
+                        selected = alarmConfig.speakBriefTiming == timing,
+                        onClick = { onUpdateAlarmConfig(alarmConfig.copy(speakBriefTiming = timing)) },
+                    )
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun SettingStepperPill(
+    label: String,
+    valueText: String,
+    onDecrement: () -> Unit,
+    onIncrement: () -> Unit,
+) {
+    Surface(
+        color = NernalColors.CardInner,
+        shape = RoundedCornerShape(12.dp),
+        border = BorderStroke(1.dp, NernalColors.Border),
+        modifier = Modifier.height(48.dp),
+    ) {
+        Row(
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(2.dp),
+            modifier = Modifier.padding(horizontal = 4.dp),
+        ) {
+            IconButton(onClick = onDecrement, modifier = Modifier.size(38.dp)) {
+                Text("-", color = NernalColors.Gold, fontSize = 18.sp, fontWeight = FontWeight.Bold)
+            }
+            Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                Text(label, color = NernalColors.InkMuted, fontSize = 9.sp, fontWeight = FontWeight.SemiBold)
+                Text(valueText, color = NernalColors.Ink, fontSize = 15.sp, fontWeight = FontWeight.Bold)
+            }
+            IconButton(onClick = onIncrement, modifier = Modifier.size(38.dp)) {
+                Text("+", color = NernalColors.Gold, fontSize = 18.sp, fontWeight = FontWeight.Bold)
+            }
         }
     }
 }

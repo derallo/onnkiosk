@@ -77,6 +77,7 @@ import androidx.compose.ui.unit.sp
 import androidx.compose.ui.viewinterop.AndroidView
 import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
+import com.nernal.frame.BuildConfig
 import com.nernal.frame.NernalUiState
 import com.nernal.frame.data.GoogleAuthState
 import com.nernal.frame.data.UserLocation
@@ -440,21 +441,28 @@ private fun SignedOutPanel(
                         shape = RoundedCornerShape(10.dp),
                         border = BorderStroke(1.dp, NernalColors.BorderSubtle),
                     ) {
-                        Column(
+                        Row(
                             modifier = Modifier.padding(12.dp),
-                            verticalArrangement = Arrangement.spacedBy(4.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(14.dp),
                         ) {
-                            Text(
-                                text = "Phone / Laptop Companion Sign-In",
-                                color = NernalColors.Accent,
-                                fontSize = 12.sp,
-                                fontWeight = FontWeight.Bold,
-                            )
-                            Text(
-                                text = "Open ${state.lanHelperUrl} on your phone or laptop on the same Wi-Fi. It forwards you to Google and includes a zero-typing paste form to send the redirect URL back automatically.",
-                                color = NernalColors.InkMuted,
-                                fontSize = 13.sp,
-                            )
+                            QrCodeImage(content = state.lanHelperUrl, size = 112.dp)
+                            Column(
+                                modifier = Modifier.weight(1f),
+                                verticalArrangement = Arrangement.spacedBy(4.dp),
+                            ) {
+                                Text(
+                                    text = "Phone / Laptop Companion Sign-In",
+                                    color = NernalColors.Accent,
+                                    fontSize = 12.sp,
+                                    fontWeight = FontWeight.Bold,
+                                )
+                                Text(
+                                    text = "Scan this QR code or open ${state.lanHelperUrl} on your phone or laptop on the same Wi-Fi. It forwards you to Google and includes a zero-typing paste form to send the redirect URL back automatically.",
+                                    color = NernalColors.InkMuted,
+                                    fontSize = 13.sp,
+                                )
+                            }
                         }
                     }
                 }
@@ -890,7 +898,7 @@ private fun PhotoAlbumsTabContent(
                     fontWeight = FontWeight.Bold,
                 )
                 Text(
-                    text = "Because Google restricted browsing private albums directly in 2025, you can add any album by link: in Google Photos, open the album, tap Share → 'Create Link', and paste the photos.app.goo.gl/... link below. Onnkiosk will sync and rotate through all photos in the album automatically.",
+                    text = "Because Google restricted browsing private albums directly in 2025, you can add any album by link: in Google Photos, open the album, tap Share → 'Create Link', and paste the photos.app.goo.gl/... link below. ${BuildConfig.APP_DISPLAY_NAME} will sync and rotate through all photos in the album automatically.",
                     color = NernalColors.InkMuted,
                     fontSize = 12.sp,
                 )

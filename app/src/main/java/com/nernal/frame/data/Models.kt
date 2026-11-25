@@ -1,6 +1,7 @@
 package com.nernal.frame.data
 
 import androidx.compose.ui.graphics.Color
+import com.nernal.frame.BuildConfig
 import com.nernal.frame.ui.NernalColors
 
 enum class WeatherConditionKind {
@@ -27,7 +28,44 @@ data class WeatherAlert(
     val headline: String,
     val severity: String,
     val description: String,
-)
+) {
+    fun alertKey(): String = "${event.trim()}|${headline.trim()}"
+}
+
+data class GeminiKeyCandidate(
+    val taskId: String,
+    val taskTitle: String,
+    val apiKey: String,
+) {
+    val maskedKey: String
+        get() = if (apiKey.length <= 12) apiKey else "${apiKey.take(8)}…${apiKey.takeLast(4)}"
+}
+
+enum class AlarmBriefTiming(val label: String) {
+    ON_DISMISS("When Silenced"),
+    AT_ALARM("At Alarm Time"),
+    OFF("Chime Only"),
+}
+
+data class AlarmConfig(
+    val enabled: Boolean = false,
+    val hour24: Int = 7,
+    val minute: Int = 0,
+    val daysOfWeek: Set<Int> = setOf(1, 2, 3, 4, 5, 6, 7),
+    val speakBriefTiming: AlarmBriefTiming = AlarmBriefTiming.ON_DISMISS,
+    val label: String = "Morning Alarm",
+) {
+    val formattedTime: String
+        get() {
+            val amPm = if (hour24 < 12) "AM" else "PM"
+            val hour12 = when {
+                hour24 == 0 -> 12
+                hour24 > 12 -> hour24 - 12
+                else -> hour24
+            }
+            return "$hour12:${minute.toString().padStart(2, '0')} $amPm"
+        }
+}
 
 data class WeatherData(
     val currentTempF: Int,
@@ -78,10 +116,65 @@ data class AlbumPhoto(
     }
 }
 
-enum class ReminderCategory(val label: String, val pluralLabel: String) {
-    EVENT("Event", "Events"),
-    TASK("Task", "Tasks");
+enum class ReminderCategory(val label: String, val pluralLabel: String, val piValue: String) {
+    EVENT("Event", "Events", "calendar"),
+    TASK("Task", "Tasks", "task");
+
+    companion object {
+        fun fromPi(raw: String?): ReminderCategory = when (raw?.lowercase()) {
+            "calendar", "event" -> EVENT
+            else -> TASK
+        }
+    }
 }
+
+enum class PiConnectionState {
+    CHECKING,
+    CONNECTED,
+    STANDALONE,
+}
+
+data class PendingFavOp(
+    val photoId: String,
+    val favorite: Boolean,
+    val updatedAtMs: Long = System.currentTimeMillis(),
+)
+
+data class DeviceCapabilities(
+    val hasCamera: Boolean = false,
+    val hasFrontCamera: Boolean = false,
+    val preferredCameraId: String? = null,
+    val hasMicrophone: Boolean = false,
+    val hasAudioOutput: Boolean = false,
+    val hasOnDeviceSpeech: Boolean = false,
+) {
+    val hasVoiceInputAndOutput: Boolean
+        get() = hasMicrophone && hasAudioOutput
+}
+
+enum class VoiceAssistantState {
+    IDLE,
+    LISTENING,
+    THINKING,
+    SPEAKING,
+}
+
+data class QuickAnswerCardData(
+    val question: String,
+    val answer: String,
+    val sources: List<String> = emptyList(),
+    val timestampMs: Long = System.currentTimeMillis(),
+)
+
+data class MemoryEntry(
+    val id: String,
+    val notebook: String,
+    val title: String,
+    val summary: String,
+    val content: String,
+    val updatedAtMs: Long = System.currentTimeMillis(),
+    val fromPi: Boolean = false,
+)
 
 enum class HubFilter(val label: String) {
     ALL("All"),
@@ -287,9 +380,9 @@ data class UserLocation(
 ) {
     companion object {
         val DEFAULT = UserLocation(
-            name = "WASHINGTON, DC",
-            latitude = 38.8951,
-            longitude = -77.0364,
+            name = BuildConfig.DEFAULT_LOCATION_NAME,
+            latitude = BuildConfig.DEFAULT_LAT.toDoubleOrNull() ?: 38.8951,
+            longitude = BuildConfig.DEFAULT_LON.toDoubleOrNull() ?: -77.0364,
             timezone = "America/New_York",
         )
     }

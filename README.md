@@ -8,20 +8,50 @@ Optimized for **landscape 1280×800** displays (such as the Walmart Onn 8" Table
 
 ## Features
 
-- **Google Calendar**: Day, 3-Day, Week, and Month views with all-day events pinned cleanly at the top.
+- **Device-Adaptive Hardware Detection**: Automatically detects camera, microphone, speakers, and on-device speech recognition — exposing voice assistant, audible alerts, and camera motion wake/sleep on capable tablets (such as Fire Tablets running LineageOS) while keeping headless frames clean.
+- **Google Calendar**: Day, 3-Day, Week, and Month views with horizontal swipe navigation, all-day events pinned cleanly at the top, and tappable Month day pop-outs (with `+ Add Event` for that day).
 - **Google Tasks**: Interactive task checklist with completion toggles, due dates, and quick addition.
-- **Google Photos**: Auto-cycling photo slideshow with year filtering, album selection, full-screen mode, and favorites (`★`).
-- **Weather & Doppler Radar**: Current temperature, forecasts, and live interactive RainViewer radar tile overlays with timeline scrubbing.
+- **Google Photos**: Auto-cycling photo slideshow with year filtering, album selection, full-screen mode, top-right `★` favorite badges, and `★ Only / ☆ Off` filtering.
+- **Weather & Doppler Radar**: Top-aligned equal-size clock & date header, current temperature, collapsible 4-day future forecast cards (showing a compact temp badge when collapsed), dismissible NWS weather alerts, and live interactive RainViewer radar tile overlays with timeline scrubbing.
+- **Morning Alarm, Dual-Tier Voice Assistant, Night Mode & Camera Wake**:
+  - **Morning Alarm & Daily Brief**: Configurable wake time and days of week that automatically exits Night Mode, chimes, and reads your morning weather & schedule brief (at alarm time or when silenced).
+  - **Tier 1 (No API Key Required)**: Uses on-device speech recognition & Text-to-Speech for time, weather, morning briefings, calendar/tasks, adding reminders, and screen/photo controls, plus synthesized 4-note chimes and spoken event alerts.
+  - **Tier 2 ("Super Onnkiosk" with Gemini API Key)**: Enter your own Gemini API key in Settings — directly, via scannable QR code / local Wi-Fi from your phone/PC, or by picking a key from Google Tasks — to unlock natural conversational AI, live camera vision (*"What am I holding?"*, *"Read this"*), and a voice-managed **Memory Book** for recipes and notes.
+  - **Night Mode & Camera Motion Wake**: Manual Night Mode stays dim until explicitly turned off (or woken by Morning Alarm); idle Auto-Sleep wakes hands-free via the front camera when someone approaches.
+- **Optional Nernal Raspberry Pi Sync**: Toggleable Pi LAN sync for households connecting to a Nernal Raspberry Pi hub.
 - **Self-Updating**: In-app update notifications via GitHub Releases with direct download and install.
-- **Privacy & Security**: Connects directly to Google APIs using your own OAuth Client credentials or user login. No intermediary servers, no third-party tracking.
+- **Privacy & Security**: Connects directly to Google APIs (and Gemini when configured) using your own credentials. No intermediary servers, no third-party tracking.
+
+---
+
+## Hardware-Adaptive Capabilities (Tablets of Varying Hardware)
+
+Onnkiosk automatically inspects the tablet's hardware at launch (`DeviceCapabilitiesDetector`) and enables or hides controls accordingly — no manual configuration needed:
+
+| Detected Hardware | Capabilities Automatically Unlocked |
+| :--- | :--- |
+| **Base Tablet** *(Display + Wi-Fi only, e.g. Walmart Onn 8" / `ceres-b3`)* | Full ambient dashboard: top-aligned Clock & Date, Weather + collapsible 4-day forecast + dismissible NWS alerts + Doppler Radar, Google Calendar (Itinerary / 3-Day / Week / Month with swipe & day pop-outs), Google Tasks, Google Photos slideshow (`★ Only / ☆ Off`, fullscreen, year/album filters), Night Mode, and QR-code companion sign-in. |
+| **+ Speakers** | **Audible Event Alerts** (warm 4-note chime + spoken announcement 1–5 min before events), **Morning Alarm & Daily Brief** (wakes Night Mode, chimes, and reads weather & schedule), and **Read Aloud** on Event Details and Memory Book entries. |
+| **+ Front Camera** | **Camera Motion Wake** (`👁` toggle) + **Auto-Sleep After Inactivity** (`Off`, `5m`, `10m`, `15m`, `30m`) — dims when idle and wakes hands-free when someone walks up (manual Night Mode stays dark until tapped or woken by Morning Alarm). |
+| **+ Microphone & Speakers** | Outlined **`🎤` Voice Assistant** button — **Tier 1 on-device speech works out of the box with zero API key**: ask for time, date, weather, morning briefing, schedule/tasks, add reminders/events, or control radar, photos, and screen dimming. |
+
+---
+
+## Optional AI Enhancement ("Super Onnkiosk" with Gemini)
+
+Onnkiosk is **100% functional with no AI key**. If you choose to add an optional Gemini API key in **Settings** (by typing/pasting, tapping **Send from Phone/PC** to scan a local Wi-Fi QR code, or tapping **Pick from Google Tasks**), the voice assistant upgrades to **"Super Onnkiosk"**:
+
+- **Natural Conversational AI**: Ask open-ended questions, recipes, conversions, or follow-ups with multi-turn listening.
+- **Live Camera Vision** *(on tablets with a front camera)*: Hold up an object, label, or recipe card and ask *"What am I holding?"* or *"Read this"*.
+- **Voice-Managed Memory Book**: Tell Onnkiosk to remember family recipes, birthdays, doctor numbers, or household notes — browseable and readable aloud anytime via the **Memories** button (and optionally synced two-way with a Nernal Raspberry Pi hub on your Wi-Fi).
 
 ---
 
 ## Hardware Optimization
 
-- **Target Device**: Walmart Onn 8" Tablet (`ceres-b3`) or any Android 13+ (API 33+) tablet running in landscape mode (`1280×800` or `1920×1200`).
+- **Target Device**: Walmart Onn 8" Tablet (`ceres-b3`, 1280×800) or any Android 13+ (API 33+) tablet (such as Fire Tablets running LineageOS, 1920×1200) in landscape mode.
 - **Orientation**: Locked in landscape orientation.
-- **Display**: High-contrast dark theme designed for ambient wall-mount or countertop kitchen/living room kiosks.
+- **Display**: High-contrast pure-black dark theme designed for ambient wall-mount or countertop kitchen/living room kiosks.
 
 ---
 
