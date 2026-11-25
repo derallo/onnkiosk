@@ -107,6 +107,7 @@ import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.text.input.VisualTransformation
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.window.Dialog
@@ -200,21 +201,151 @@ fun LifestyleWing(
     isPortrait: Boolean = false,
     modifier: Modifier = Modifier,
 ) {
-    Column(
+    NernalCard(
         modifier = modifier,
-        verticalArrangement = Arrangement.spacedBy(10.dp),
+        containerColor = Color.Black,
+        cornerRadius = 20.dp,
     ) {
-        // Top Utility Bar: Speak (outlined) on left; right-to-left from right edge: Settings, Night, Eye (if camera)
-        // Account & Wi-Fi appear only during first setup (always accessible inside Settings afterward)
-        if (showTopUtilityBar) {
-        Row(
-            modifier = Modifier
-                .fillMaxWidth()
-                .height(50.dp),
-            verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.SpaceBetween,
-        ) {
-            // LEFT: Speak (outlined), Memories (if active), Pi Sync (if enabled), and Account/Wi-Fi only on first setup
+        Column(modifier = Modifier.fillMaxSize()) {
+            Box(
+                modifier = Modifier
+                    .weight(1f)
+                    .fillMaxWidth()
+                    .pointerInput(state.activePhotos.size) {
+                        if (state.activePhotos.size <= 1) return@pointerInput
+                        var totalDrag = 0f
+                        detectHorizontalDragGestures(
+                            onDragStart = { totalDrag = 0f },
+                            onDragCancel = { totalDrag = 0f },
+                            onDragEnd = {
+                                if (totalDrag < -60f) onNextPhoto()
+                                else if (totalDrag > 60f) onPreviousPhoto()
+                                totalDrag = 0f
+                            },
+                            onHorizontalDrag = { _, dragAmount ->
+                                totalDrag += dragAmount
+                            },
+                        )
+                    }
+                    .clickable(enabled = state.activePhotos.isNotEmpty(), onClick = onInspectPhoto),
+                contentAlignment = Alignment.Center,
+            ) {
+                val hasLocalFilter = (state.availableYears.isNotEmpty() && state.selectedPhotoYears.size < state.availableYears.size && state.selectedPhotoYears.isNotEmpty()) || state.photoAlbumFilter != null
+                val needsSignIn = state.authState != GoogleAuthState.SIGNED_IN && state.customSharedAlbumUrls.isEmpty() && state.allPhotos.isEmpty()
+                val noAlbumsSelected = state.authState == GoogleAuthState.SIGNED_IN &&
+                    state.customSharedAlbumUrls.isEmpty() &&
+                    state.allPhotos.isEmpty()
+                val emptyStateTopClearance = showTopUtilityBar && state.currentPhoto == null
+                Box(
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .then(if (emptyStateTopClearance) Modifier.padding(top = 56.dp) else Modifier),
+                    contentAlignment = Alignment.Center,
+                ) {
+                    PhotoStageContent(
+                        photo = state.currentPhoto,
+                        bitmap = state.currentBitmap,
+                        isLoading = state.photoLoading || (state.albumsSyncing && state.allPhotos.isEmpty()),
+                        favoritesOnly = state.favoritesOnly,
+                        hasFilter = hasLocalFilter,
+                        needsSignIn = needsSignIn,
+                        noAlbumsSelected = noAlbumsSelected,
+                        errorMessage = state.albumError,
+                        onShowAll = onResetFilters,
+                        onRetry = onRefreshAlbums,
+                        onNextPhoto = onNextPhoto,
+                        onOpenAccount = onOpenAccount,
+                        onHideCarousel = onToggleCalendarPrimary?.let { fn -> { fn(true) } },
+                    )
+                }
+
+                if (state.isCurrentStarred && state.currentPhoto != null) {
+                    Surface(
+                        color = Color.Black.copy(alpha = 0.65f),
+                        shape = CircleShape,
+                        border = BorderStroke(1.dp, NernalColors.Amber.copy(alpha = 0.75f)),
+                        modifier = Modifier
+                            .align(Alignment.BottomEnd)
+                            .padding(12.dp)
+                            .size(34.dp),
+                    ) {
+                        Box(contentAlignment = Alignment.Center) {
+                            Icon(
+                                imageVector = Icons.Rounded.Star,
+                                contentDescription = "Favorite photo",
+                                tint = NernalColors.Amber,
+                                modifier = Modifier.size(18.dp),
+                            )
+                        }
+                    }
+                }
+
+                // Landscape top utility controls float directly over the top of the picture card
+                // so the left & right rounded cards align flush at the top edge.
+                if (showTopUtilityBar) {
+                    PhotoTopUtilityOverlay(
+                        state = state,
+                        onSpeakClick = onSpeakClick,
+                        onOpenMemories = onOpenMemories,
+                        onOpenPiSync = onOpenPiSync,
+                        onOpenAccount = onOpenAccount,
+                        onToggleCameraWake = onToggleCameraWake,
+                        onDimScreen = onDimScreen,
+                        onOpenSettings = onOpenSettings,
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .align(Alignment.TopCenter)
+                            .padding(10.dp),
+                    )
+                }
+            }
+
+            HorizontalDivider(color = NernalColors.BorderSubtle)
+
+            PhotoControlBar(
+                hasPhoto = state.currentPhoto != null,
+                total = state.activePhotos.size,
+                isStarred = state.isCurrentStarred,
+                autoAdvance = state.autoAdvance,
+                favoritesOnly = state.favoritesOnly,
+                onPrev = onPreviousPhoto,
+                onNext = onNextPhoto,
+                onToggleAuto = onToggleAutoAdvance,
+                onToggleStar = onToggleStar,
+                onToggleFavoritesFilter = onToggleFavoritesFilter,
+                onEnterFullscreen = onEnterFullscreen,
+                onHide = onToggleCalendarPrimary?.let { fn -> { fn(true) } },
+                isPortrait = isPortrait,
+            )
+        }
+    }
+}
+
+@Composable
+private fun PhotoTopUtilityOverlay(
+    state: NernalUiState,
+    onSpeakClick: () -> Unit,
+    onOpenMemories: () -> Unit,
+    onOpenPiSync: () -> Unit,
+    onOpenAccount: () -> Unit,
+    onToggleCameraWake: () -> Unit,
+    onDimScreen: () -> Unit,
+    onOpenSettings: () -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    val hasLeftUtilities = state.capabilities.hasVoiceInputAndOutput ||
+        state.memoryEntries.isNotEmpty() ||
+        state.geminiApiKey.isNotBlank() ||
+        state.piSyncEnabled ||
+        state.showFirstSetupShortcuts
+    val overlayCardColor = NernalColors.Card.copy(alpha = 0.85f)
+
+    Row(
+        modifier = modifier,
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = if (hasLeftUtilities) Arrangement.SpaceBetween else Arrangement.End,
+    ) {
+        if (hasLeftUtilities) {
             Row(
                 verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.spacedBy(6.dp),
@@ -222,10 +353,10 @@ fun LifestyleWing(
                 if (state.capabilities.hasVoiceInputAndOutput) {
                     val isVoiceActive = state.voiceState != VoiceAssistantState.IDLE
                     val voiceBg = when (state.voiceState) {
-                        VoiceAssistantState.LISTENING -> Color(0xFF0E3A2C)
-                        VoiceAssistantState.THINKING -> Color(0xFF172554)
-                        VoiceAssistantState.SPEAKING -> Color(0xFF33260F)
-                        VoiceAssistantState.IDLE -> NernalColors.Card
+                        VoiceAssistantState.LISTENING -> Color(0xFF0E3A2C).copy(alpha = 0.9f)
+                        VoiceAssistantState.THINKING -> Color(0xFF172554).copy(alpha = 0.9f)
+                        VoiceAssistantState.SPEAKING -> Color(0xFF33260F).copy(alpha = 0.9f)
+                        VoiceAssistantState.IDLE -> overlayCardColor
                     }
                     val voiceAccent = when (state.voiceState) {
                         VoiceAssistantState.LISTENING -> NernalColors.Emerald
@@ -237,6 +368,7 @@ fun LifestyleWing(
                         color = voiceBg,
                         shape = RoundedCornerShape(12.dp),
                         border = BorderStroke(1.5.dp, voiceAccent),
+                        shadowElevation = 4.dp,
                         modifier = Modifier
                             .width(72.dp)
                             .height(48.dp)
@@ -256,9 +388,10 @@ fun LifestyleWing(
 
                 if (state.memoryEntries.isNotEmpty() || state.geminiApiKey.isNotBlank() || state.piSyncEnabled) {
                     Surface(
-                        color = NernalColors.Card,
+                        color = overlayCardColor,
                         shape = RoundedCornerShape(12.dp),
                         border = BorderStroke(1.dp, NernalColors.Border),
+                        shadowElevation = 4.dp,
                         modifier = Modifier
                             .size(width = 46.dp, height = 48.dp)
                             .clip(RoundedCornerShape(12.dp))
@@ -283,9 +416,10 @@ fun LifestyleWing(
                         else -> NernalColors.InkMuted to "Pi"
                     }
                     Surface(
-                        color = NernalColors.Card,
+                        color = overlayCardColor,
                         shape = RoundedCornerShape(12.dp),
                         border = BorderStroke(1.dp, NernalColors.Border),
+                        shadowElevation = 4.dp,
                         modifier = Modifier
                             .height(48.dp)
                             .clip(RoundedCornerShape(12.dp))
@@ -322,12 +456,13 @@ fun LifestyleWing(
                         else -> NernalColors.Amber
                     }
                     Surface(
-                        color = if (state.authState == GoogleAuthState.NOT_SIGNED_IN) Color(0xFF282213) else NernalColors.Card,
+                        color = if (state.authState == GoogleAuthState.NOT_SIGNED_IN) Color(0xFF282213).copy(alpha = 0.9f) else overlayCardColor,
                         shape = RoundedCornerShape(12.dp),
                         border = BorderStroke(
                             1.dp,
                             if (state.authState == GoogleAuthState.NOT_SIGNED_IN) NernalColors.Amber.copy(alpha = 0.65f) else NernalColors.Border,
                         ),
+                        shadowElevation = 4.dp,
                         modifier = Modifier
                             .size(width = 46.dp, height = 48.dp)
                             .clip(RoundedCornerShape(12.dp))
@@ -353,9 +488,10 @@ fun LifestyleWing(
 
                     val currentContext = LocalContext.current
                     Surface(
-                        color = NernalColors.Card,
+                        color = overlayCardColor,
                         shape = RoundedCornerShape(12.dp),
                         border = BorderStroke(1.dp, NernalColors.Border),
+                        shadowElevation = 4.dp,
                         modifier = Modifier
                             .size(width = 46.dp, height = 48.dp)
                             .clip(RoundedCornerShape(12.dp))
@@ -372,165 +508,73 @@ fun LifestyleWing(
                     }
                 }
             }
+        }
 
-            // RIGHT (right-to-left from right edge): Settings, Night, Eye (if camera)
-            Row(
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(6.dp),
-            ) {
-                if (state.capabilities.hasCamera) {
-                    val eyeColor = when {
-                        !state.cameraMotionWakeEnabled -> NernalColors.InkMuted
-                        state.motionDetected -> NernalColors.Emerald
-                        else -> NernalColors.Emerald.copy(alpha = 0.75f)
-                    }
-                    Surface(
-                        color = if (state.motionDetected && state.cameraMotionWakeEnabled) Color(0xFF0E3A2C) else NernalColors.Card,
-                        shape = RoundedCornerShape(12.dp),
-                        border = BorderStroke(
-                            1.dp,
-                            if (state.cameraMotionWakeEnabled) eyeColor.copy(alpha = 0.65f) else NernalColors.Border,
-                        ),
-                        modifier = Modifier
-                            .size(width = 46.dp, height = 48.dp)
-                            .clip(RoundedCornerShape(12.dp))
-                            .clickable(onClick = onToggleCameraWake),
-                    ) {
-                        Box(contentAlignment = Alignment.Center) {
-                            Icon(
-                                imageVector = if (state.cameraMotionWakeEnabled) Icons.Rounded.Visibility else Icons.Rounded.VisibilityOff,
-                                contentDescription = "Camera Motion Wake",
-                                tint = eyeColor,
-                                modifier = Modifier.size(21.dp),
-                            )
-                        }
-                    }
+        // RIGHT: Eye (if camera), Moon (Night Mode), Settings
+        Row(
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(6.dp),
+        ) {
+            if (state.capabilities.hasCamera) {
+                val eyeColor = when {
+                    !state.cameraMotionWakeEnabled -> NernalColors.InkMuted
+                    state.motionDetected -> NernalColors.Emerald
+                    else -> NernalColors.Emerald.copy(alpha = 0.75f)
                 }
-
-                UtilityIconButton(
-                    icon = Icons.Rounded.Bedtime,
-                    contentDescription = "Night Mode",
-                    onClick = onDimScreen,
-                )
-
-                // Settings: All the way to the right
-                val hasFilter = (state.availableYears.isNotEmpty() && state.selectedPhotoYears.size < state.availableYears.size && state.selectedPhotoYears.isNotEmpty()) || state.photoAlbumFilter != null
                 Surface(
-                    color = if (hasFilter) NernalColors.CardSubtle else NernalColors.Card,
+                    color = if (state.motionDetected && state.cameraMotionWakeEnabled) Color(0xFF0E3A2C).copy(alpha = 0.9f) else overlayCardColor,
                     shape = RoundedCornerShape(12.dp),
                     border = BorderStroke(
-                        width = 1.dp,
-                        color = if (hasFilter) NernalColors.Gold.copy(alpha = 0.65f) else NernalColors.Border,
+                        1.dp,
+                        if (state.cameraMotionWakeEnabled) eyeColor.copy(alpha = 0.65f) else NernalColors.Border,
                     ),
+                    shadowElevation = 4.dp,
                     modifier = Modifier
                         .size(width = 46.dp, height = 48.dp)
                         .clip(RoundedCornerShape(12.dp))
-                        .clickable(onClick = onOpenSettings),
+                        .clickable(onClick = onToggleCameraWake),
                 ) {
                     Box(contentAlignment = Alignment.Center) {
                         Icon(
-                            imageVector = Icons.Rounded.Settings,
-                            contentDescription = "Frame Settings",
-                            tint = NernalColors.Gold,
-                            modifier = Modifier.size(22.dp),
+                            imageVector = if (state.cameraMotionWakeEnabled) Icons.Rounded.Visibility else Icons.Rounded.VisibilityOff,
+                            contentDescription = "Camera Motion Wake",
+                            tint = eyeColor,
+                            modifier = Modifier.size(21.dp),
                         )
                     }
                 }
             }
-        }
-        }
 
-        // Photo Carousel Card
-        NernalCard(
-            modifier = Modifier
-                .weight(1f)
-                .fillMaxWidth(),
-            containerColor = Color.Black,
-            cornerRadius = 24.dp,
-        ) {
-            Column(modifier = Modifier.fillMaxSize()) {
-                Box(
-                    modifier = Modifier
-                        .weight(1f)
-                        .fillMaxWidth()
-                        .pointerInput(state.activePhotos.size) {
-                            if (state.activePhotos.size <= 1) return@pointerInput
-                            var totalDrag = 0f
-                            detectHorizontalDragGestures(
-                                onDragStart = { totalDrag = 0f },
-                                onDragCancel = { totalDrag = 0f },
-                                onDragEnd = {
-                                    if (totalDrag < -60f) onNextPhoto()
-                                    else if (totalDrag > 60f) onPreviousPhoto()
-                                    totalDrag = 0f
-                                },
-                                onHorizontalDrag = { _, dragAmount ->
-                                    totalDrag += dragAmount
-                                },
-                            )
-                        }
-                        .clickable(enabled = state.activePhotos.isNotEmpty(), onClick = onInspectPhoto),
-                    contentAlignment = Alignment.Center,
-                ) {
-                    val hasLocalFilter = (state.availableYears.isNotEmpty() && state.selectedPhotoYears.size < state.availableYears.size && state.selectedPhotoYears.isNotEmpty()) || state.photoAlbumFilter != null
-                    val needsSignIn = state.authState != GoogleAuthState.SIGNED_IN && state.customSharedAlbumUrls.isEmpty() && state.allPhotos.isEmpty()
-                    val noAlbumsSelected = state.authState == GoogleAuthState.SIGNED_IN &&
-                        state.customSharedAlbumUrls.isEmpty() &&
-                        state.allPhotos.isEmpty()
-                    PhotoStageContent(
-                        photo = state.currentPhoto,
-                        bitmap = state.currentBitmap,
-                        isLoading = state.photoLoading || (state.albumsSyncing && state.allPhotos.isEmpty()),
-                        favoritesOnly = state.favoritesOnly,
-                        hasFilter = hasLocalFilter,
-                        needsSignIn = needsSignIn,
-                        noAlbumsSelected = noAlbumsSelected,
-                        errorMessage = state.albumError,
-                        onShowAll = onResetFilters,
-                        onRetry = onRefreshAlbums,
-                        onNextPhoto = onNextPhoto,
-                        onOpenAccount = onOpenAccount,
-                        onHideCarousel = onToggleCalendarPrimary?.let { fn -> { fn(true) } },
+            UtilityIconButton(
+                icon = Icons.Rounded.Bedtime,
+                contentDescription = "Night Mode",
+                containerColor = overlayCardColor,
+                shadowElevation = 4.dp,
+                onClick = onDimScreen,
+            )
+
+            val hasFilter = (state.availableYears.isNotEmpty() && state.selectedPhotoYears.size < state.availableYears.size && state.selectedPhotoYears.isNotEmpty()) || state.photoAlbumFilter != null
+            Surface(
+                color = if (hasFilter) NernalColors.CardSubtle.copy(alpha = 0.9f) else overlayCardColor,
+                shape = RoundedCornerShape(12.dp),
+                border = BorderStroke(
+                    width = 1.dp,
+                    color = if (hasFilter) NernalColors.Gold.copy(alpha = 0.65f) else NernalColors.Border,
+                ),
+                shadowElevation = 4.dp,
+                modifier = Modifier
+                    .size(width = 46.dp, height = 48.dp)
+                    .clip(RoundedCornerShape(12.dp))
+                    .clickable(onClick = onOpenSettings),
+            ) {
+                Box(contentAlignment = Alignment.Center) {
+                    Icon(
+                        imageVector = Icons.Rounded.Settings,
+                        contentDescription = "Frame Settings",
+                        tint = NernalColors.Gold,
+                        modifier = Modifier.size(22.dp),
                     )
-                    if (state.isCurrentStarred && state.currentPhoto != null) {
-                        Surface(
-                            color = Color.Black.copy(alpha = 0.65f),
-                            shape = CircleShape,
-                            border = BorderStroke(1.dp, NernalColors.Amber.copy(alpha = 0.75f)),
-                            modifier = Modifier
-                                .align(Alignment.TopEnd)
-                                .padding(12.dp)
-                                .size(34.dp),
-                        ) {
-                            Box(contentAlignment = Alignment.Center) {
-                                Icon(
-                                    imageVector = Icons.Rounded.Star,
-                                    contentDescription = "Favorite photo",
-                                    tint = NernalColors.Amber,
-                                    modifier = Modifier.size(18.dp),
-                                )
-                            }
-                        }
-                    }
                 }
-
-                HorizontalDivider(color = NernalColors.BorderSubtle)
-
-                PhotoControlBar(
-                    photo = state.currentPhoto,
-                    total = state.activePhotos.size,
-                    isStarred = state.isCurrentStarred,
-                    autoAdvance = state.autoAdvance,
-                    favoritesOnly = state.favoritesOnly,
-                    onPrev = onPreviousPhoto,
-                    onNext = onNextPhoto,
-                    onToggleAuto = onToggleAutoAdvance,
-                    onToggleStar = onToggleStar,
-                    onToggleFavoritesFilter = onToggleFavoritesFilter,
-                    onEnterFullscreen = onEnterFullscreen,
-                    onHide = onToggleCalendarPrimary?.let { fn -> { fn(true) } },
-                    isPortrait = isPortrait,
-                )
             }
         }
     }
@@ -541,12 +585,15 @@ private fun UtilityIconButton(
     icon: androidx.compose.ui.graphics.vector.ImageVector,
     contentDescription: String,
     isBusy: Boolean = false,
+    containerColor: Color = NernalColors.Card,
+    shadowElevation: Dp = 0.dp,
     onClick: () -> Unit,
 ) {
     Surface(
-        color = NernalColors.Card,
+        color = containerColor,
         shape = RoundedCornerShape(12.dp),
         border = BorderStroke(1.dp, NernalColors.Border),
+        shadowElevation = shadowElevation,
         modifier = Modifier
             .size(width = 46.dp, height = 48.dp)
             .clip(RoundedCornerShape(12.dp))
@@ -914,7 +961,7 @@ private fun PhotoStageContent(
 
 @Composable
 private fun PhotoControlBar(
-    photo: AlbumPhoto?,
+    hasPhoto: Boolean,
     total: Int,
     isStarred: Boolean,
     autoAdvance: Boolean,
@@ -936,10 +983,10 @@ private fun PhotoControlBar(
             .padding(horizontal = 8.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
-        // Left: <, Pause/Play, >
+        // Left: <, Pause/Play, Fullscreen, >
         Row(
             verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(4.dp),
+            horizontalArrangement = Arrangement.spacedBy(6.dp),
         ) {
             Surface(
                 onClick = onPrev,
@@ -975,6 +1022,22 @@ private fun PhotoControlBar(
                 }
             }
             Surface(
+                onClick = onEnterFullscreen,
+                color = NernalColors.CardInner,
+                shape = RoundedCornerShape(12.dp),
+                border = BorderStroke(1.dp, NernalColors.BorderSubtle),
+                modifier = Modifier.size(48.dp),
+            ) {
+                Box(contentAlignment = Alignment.Center) {
+                    Icon(
+                        imageVector = Icons.Rounded.Fullscreen,
+                        contentDescription = "Fullscreen Slideshow",
+                        tint = NernalColors.Ink,
+                        modifier = Modifier.size(23.dp),
+                    )
+                }
+            }
+            Surface(
                 onClick = onNext,
                 enabled = total > 1,
                 color = NernalColors.CardInner,
@@ -993,31 +1056,12 @@ private fun PhotoControlBar(
             }
         }
 
-        // Left-aligned right beside '>': Album name · year
-        Box(
-            modifier = Modifier
-                .weight(1f)
-                .padding(start = 8.dp, end = 8.dp),
-            contentAlignment = Alignment.CenterStart,
-        ) {
-            val titleLine = buildString {
-                append(photo?.albumTitle ?: "Google Photos")
-                photo?.year?.takeIf { it > 1970 }?.let { append(" · $it") }
-            }
-            Text(
-                text = titleLine,
-                color = NernalColors.Gold,
-                fontSize = 14.sp,
-                fontWeight = FontWeight.SemiBold,
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis,
-            )
-        }
+        Spacer(modifier = Modifier.weight(1f))
 
-        // Right: [★ Only / ☆ Off], Star, Fullscreen, Hide (uniform 48dp buttons with generous spacing)
+        // Right: [★ Only / ☆ Off], Star, Hide
         Row(
             verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(10.dp),
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
         ) {
             Surface(
                 onClick = onToggleFavoritesFilter,
@@ -1051,7 +1095,7 @@ private fun PhotoControlBar(
 
             Surface(
                 onClick = onToggleStar,
-                enabled = photo != null,
+                enabled = hasPhoto,
                 color = if (isStarred) Color(0xFF33260F) else NernalColors.CardInner,
                 shape = RoundedCornerShape(12.dp),
                 border = BorderStroke(
@@ -1065,23 +1109,6 @@ private fun PhotoControlBar(
                         imageVector = if (isStarred) Icons.Rounded.Star else Icons.Rounded.StarOutline,
                         contentDescription = if (isStarred) "Remove Favorite" else "Favorite Photo",
                         tint = if (isStarred) NernalColors.Amber else NernalColors.InkMuted,
-                        modifier = Modifier.size(23.dp),
-                    )
-                }
-            }
-
-            Surface(
-                onClick = onEnterFullscreen,
-                color = NernalColors.CardInner,
-                shape = RoundedCornerShape(12.dp),
-                border = BorderStroke(1.dp, NernalColors.BorderSubtle),
-                modifier = Modifier.size(48.dp),
-            ) {
-                Box(contentAlignment = Alignment.Center) {
-                    Icon(
-                        imageVector = Icons.Rounded.Fullscreen,
-                        contentDescription = "Fullscreen Slideshow",
-                        tint = NernalColors.Ink,
                         modifier = Modifier.size(23.dp),
                     )
                 }
