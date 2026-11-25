@@ -258,6 +258,7 @@ class FramePrefs(context: Context) {
             remove(KEY_ACCOUNT_PROFILE)
             remove(KEY_SELECTED_CALENDARS)
             remove(KEY_SELECTED_TASK_LISTS)
+            remove(KEY_DEFAULT_TASK_LIST_ID)
             remove(KEY_SHOPPING_TASK_LISTS)
             remove(KEY_SELECTED_PHOTO_ALBUMS)
         }
@@ -282,6 +283,19 @@ class FramePrefs(context: Context) {
 
     fun saveSelectedTaskListIds(ids: Set<String>) {
         prefs.edit { putStringSet(KEY_SELECTED_TASK_LISTS, ids.toSet()) }
+    }
+
+    fun loadDefaultTaskListId(): String? =
+        prefs.getString(KEY_DEFAULT_TASK_LIST_ID, null)?.takeIf { it.isNotBlank() }
+
+    fun saveDefaultTaskListId(listId: String?) {
+        prefs.edit {
+            if (listId.isNullOrBlank()) {
+                remove(KEY_DEFAULT_TASK_LIST_ID)
+            } else {
+                putString(KEY_DEFAULT_TASK_LIST_ID, listId.trim())
+            }
+        }
     }
 
     fun loadSelectedPhotoAlbumIds(): Set<String> =
@@ -716,6 +730,7 @@ class FramePrefs(context: Context) {
         private const val KEY_ACCOUNT_PROFILE = "google_account_profile_v1"
         private const val KEY_SELECTED_CALENDARS = "selected_calendar_ids_v1"
         private const val KEY_SELECTED_TASK_LISTS = "selected_task_list_ids_v1"
+        private const val KEY_DEFAULT_TASK_LIST_ID = "default_task_list_id_v1"
         private const val KEY_SHOPPING_TASK_LISTS = "shopping_task_list_ids_v1"
         private const val KEY_SELECTED_PHOTO_ALBUMS = "selected_photo_album_ids_v1"
         private const val KEY_CUSTOM_SHARED_ALBUM_URLS = "custom_shared_album_urls_v1"

@@ -655,4 +655,84 @@ class NernalParserTest {
         assertEquals("12:30 PM", def.copy(hour24 = 12, minute = 30).formattedTime)
         assertEquals("6:45 PM", def.copy(hour24 = 18, minute = 45).formattedTime)
     }
+
+    @Test
+    fun extendedWeatherParsingAndAssessmentHelpersWork() {
+        val weatherJson = """
+            {
+              "current": {
+                "temperature_2m": 52.3,
+                "apparent_temperature": 47.8,
+                "relative_humidity_2m": 78,
+                "wind_speed_10m": 16.4,
+                "wind_gusts_10m": 28.2,
+                "wind_direction_10m": 225,
+                "cloud_cover": 85,
+                "uv_index": 2.4,
+                "weather_code": 61,
+                "is_day": 1,
+                "precipitation": 0.12
+              },
+              "daily": {
+                "time": ["2026-11-25", "2026-11-26"],
+                "weather_code": [61, 0],
+                "temperature_2m_max": [58.0, 44.2],
+                "temperature_2m_min": [38.0, 29.4],
+                "apparent_temperature_max": [54.0, 39.0],
+                "apparent_temperature_min": [32.0, 22.0],
+                "precipitation_probability_max": [75, 5],
+                "precipitation_sum": [0.45, 0.0],
+                "wind_speed_10m_max": [18.0, 12.0],
+                "wind_gusts_10m_max": [30.0, 18.0],
+                "wind_direction_10m_dominant": [210, 315],
+                "uv_index_max": [3.5, 6.8],
+                "sunrise": ["2026-11-25T07:02", "2026-11-26T07:03"],
+                "sunset": ["2026-11-25T16:54", "2026-11-26T16:53"]
+              },
+              "hourly": {
+                "time": ["2026-11-25T09:00", "2026-11-25T10:00", "2026-11-26T09:00"],
+                "temperature_2m": [50.0, 52.0, 36.0],
+                "apparent_temperature": [46.0, 48.0, 30.0],
+                "precipitation_probability": [60, 75, 5],
+                "precipitation": [0.05, 0.10, 0.0],
+                "weather_code": [61, 61, 0],
+                "wind_speed_10m": [14.0, 16.0, 10.0],
+                "relative_humidity_2m": [80, 82, 55]
+              }
+            }
+        """.trimIndent()
+
+        val weather = NernalRepository.parseWeatherJson(weatherJson, alerts = emptyList())
+        assertEquals(28, weather.windGustsMph)
+        assertEquals(225, weather.windDirectionDeg)
+        assertEquals(85, weather.cloudCoverPercent)
+        assertEquals(2.4, weather.uvIndex!!, 0.01)
+        assertEquals(3, weather.hourly.size)
+        assertEquals(9, weather.hourly[0].hour24)
+        assertEquals("2026-11-26", weather.hourly[2].dateIso)
+
+        val today = weather.daily[0]
+        assertEquals(54, today.apparentMaxTempF)
+        assertEquals(0.45, today.precipSumInches, 0.001)
+        assertEquals(30, today.maxWindGustsMph)
+        assertEquals("2026-11-25T07:02", today.sunriseIso)
+
+        assertEquals("SW", com.nernal.frame.data.windDirectionCompass(225))
+        assertEquals("N", com.nernal.frame.data.windDirectionCompass(355))
+        assertEquals("High", com.nernal.frame.data.uvIndexCategory(6.8))
+        assertEquals("7:02 AM", com.nernal.frame.data.formatWeatherTimeIso("2026-11-25T07:02"))
+        assertEquals("4:54 PM", com.nernal.frame.data.formatWeatherTimeIso("2026-11-25T16:54"))
+
+        val todayAssessment = com.nernal.frame.data.buildWeatherAssessment(weather, today, isToday = true)
+        assertTrue(todayAssessment.contains("52°F"))
+        assertTrue(todayAssessment.contains("75% chance"))
+        assertTrue(todayAssessment.contains("gusts up to 28 mph"))
+        assertTrue(todayAssessment.contains("umbrella"))
+
+        val tomorrow = weather.daily[1]
+        val tomorrowAssessment = com.nernal.frame.data.buildWeatherAssessment(weather, tomorrow, isToday = false)
+        assertTrue(tomorrowAssessment.contains("44°F"))
+        assertTrue(tomorrowAssessment.contains("high UV"))
+        assertTrue(tomorrowAssessment.contains("freezing overnight lows"))
+    }
 }

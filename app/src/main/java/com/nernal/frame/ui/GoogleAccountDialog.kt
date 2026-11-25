@@ -99,6 +99,7 @@ fun GoogleAccountDialog(
     onSyncNow: () -> Unit,
     onToggleCalendar: (String) -> Unit,
     onToggleTaskList: (String) -> Unit,
+    onSetDefaultTaskList: (String) -> Unit,
     onCreateTaskList: (title: String) -> Unit,
     onLaunchPicker: () -> Unit,
     onAddCustomSharedUrl: (String) -> Unit,
@@ -312,6 +313,7 @@ fun GoogleAccountDialog(
                             AccountTab.TASKS -> TaskListsTabContent(
                                 state = state,
                                 onToggleTaskList = onToggleTaskList,
+                                onSetDefaultTaskList = onSetDefaultTaskList,
                                 onCreateTaskList = onCreateTaskList,
                             )
                             AccountTab.PHOTOS -> PhotoAlbumsTabContent(
@@ -691,9 +693,13 @@ private fun CalendarsTabContent(
 private fun TaskListsTabContent(
     state: NernalUiState,
     onToggleTaskList: (String) -> Unit,
+    onSetDefaultTaskList: (String) -> Unit,
     onCreateTaskList: (String) -> Unit,
 ) {
     var newListTitle by remember { mutableStateOf("") }
+    val effectiveDefaultId = state.defaultTaskListId?.takeIf { id -> state.availableTaskLists.any { it.id == id } }
+        ?: state.availableTaskLists.firstOrNull { it.id in state.selectedTaskListIds }?.id
+        ?: state.availableTaskLists.firstOrNull()?.id
 
     val tasksScrollState = rememberScrollState()
     Column(
@@ -704,7 +710,7 @@ private fun TaskListsTabContent(
         verticalArrangement = Arrangement.spacedBy(10.dp),
     ) {
         Text(
-            text = "Select Google Task Lists to display on the Tasks tab.",
+            text = "Select Google Task Lists to display on the Tasks tab, and choose a Default list for quick-adding tasks.",
             color = NernalColors.InkMuted,
             fontSize = 14.sp,
         )
@@ -722,6 +728,7 @@ private fun TaskListsTabContent(
         } else {
             for (list in state.availableTaskLists) {
                 val checked = list.id in state.selectedTaskListIds
+                val isDefault = list.id == effectiveDefaultId
                 Surface(
                     color = NernalColors.CardInner,
                     shape = RoundedCornerShape(14.dp),
@@ -753,6 +760,41 @@ private fun TaskListsTabContent(
                             fontWeight = FontWeight.SemiBold,
                             modifier = Modifier.weight(1f),
                         )
+                        if (isDefault) {
+                            Surface(
+                                color = NernalColors.Gold.copy(alpha = 0.18f),
+                                shape = RoundedCornerShape(8.dp),
+                                border = BorderStroke(1.dp, NernalColors.Gold.copy(alpha = 0.7f)),
+                            ) {
+                                Text(
+                                    text = "Default",
+                                    color = NernalColors.Gold,
+                                    fontSize = 12.sp,
+                                    fontWeight = FontWeight.Bold,
+                                    modifier = Modifier.padding(horizontal = 10.dp, vertical = 5.dp),
+                                )
+                            }
+                        } else {
+                            Surface(
+                                onClick = { onSetDefaultTaskList(list.id) },
+                                color = NernalColors.Card,
+                                shape = RoundedCornerShape(8.dp),
+                                border = BorderStroke(1.dp, NernalColors.Border),
+                                modifier = Modifier.height(36.dp),
+                            ) {
+                                Box(
+                                    contentAlignment = Alignment.Center,
+                                    modifier = Modifier.padding(horizontal = 10.dp),
+                                ) {
+                                    Text(
+                                        text = "Set Default",
+                                        color = NernalColors.InkMuted,
+                                        fontSize = 12.sp,
+                                        fontWeight = FontWeight.SemiBold,
+                                    )
+                                }
+                            }
+                        }
                     }
                 }
             }

@@ -63,6 +63,7 @@ import androidx.core.view.WindowInsetsControllerCompat
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.nernal.frame.data.NernalRepository
 import com.nernal.frame.data.VoiceAssistantState
+import com.nernal.frame.data.buildWeatherAssessment
 import com.nernal.frame.data.parseTimeLabelToMinutes
 import com.nernal.frame.data.selectNextUpcomingEvent
 import com.nernal.frame.ui.CalendarPrimaryWing
@@ -83,6 +84,7 @@ import com.nernal.frame.ui.QuickAnswerCardOverlay
 import com.nernal.frame.ui.SettingsDialog
 import com.nernal.frame.ui.UserGuideDialog
 import com.nernal.frame.ui.VoiceSubtitlesOverlay
+import com.nernal.frame.ui.WeatherDetailDialog
 import com.nernal.frame.ui.openDeviceWifiSettings
 import java.time.ZoneId
 
@@ -205,6 +207,7 @@ private fun NernalFrameRoot(
         state.showPiSyncDialog ||
         state.showUpdateDialog ||
         state.selectedEventDetail != null ||
+        state.selectedWeatherDayIso != null ||
         state.showRadarModal ||
         state.fullscreenMode ||
         state.calendarPrimaryMode
@@ -224,6 +227,7 @@ private fun NernalFrameRoot(
             state.showPiSyncDialog -> viewModel.setShowPiSyncDialog(false)
             state.showUpdateDialog -> viewModel.dismissUpdateDialog()
             state.selectedEventDetail != null -> viewModel.setSelectedEventDetail(null)
+            state.selectedWeatherDayIso != null -> viewModel.setSelectedWeatherDay(null)
             state.showRadarModal -> viewModel.closeRadarModal()
             state.fullscreenMode -> viewModel.setFullscreen(false)
             state.calendarPrimaryMode -> viewModel.setCalendarPrimaryMode(false)
@@ -253,12 +257,19 @@ private fun NernalFrameRoot(
             CalendarPrimaryWing(
                 state = state,
                 onOpenRadar = viewModel::openRadarModal,
+                onWeatherDayClick = viewModel::setSelectedWeatherDay,
                 onDismissWeatherAlert = viewModel::dismissWeatherAlert,
                 onToggleWeatherCollapsed = viewModel::toggleWeatherCollapsed,
                 onFilterChange = viewModel::setHubFilter,
                 onToggleActiveTaskListFilter = viewModel::toggleActiveTaskListFilter,
-                onAddReminder = { text, cat, dateKey ->
-                    viewModel.addReminder(text = text, category = cat, explicitDateKey = dateKey)
+                onSetDefaultTaskList = viewModel::setDefaultTaskList,
+                onAddReminder = { text, cat, dateKey, taskListId ->
+                    viewModel.addReminder(
+                        text = text,
+                        category = cat,
+                        explicitDateKey = dateKey,
+                        explicitSourceId = taskListId,
+                    )
                 },
                 onToggleReminder = viewModel::toggleReminder,
                 onDeleteReminder = viewModel::deleteReminder,
@@ -285,12 +296,19 @@ private fun NernalFrameRoot(
                 InformationalWing(
                     state = state,
                     onOpenRadar = viewModel::openRadarModal,
+                    onWeatherDayClick = viewModel::setSelectedWeatherDay,
                     onDismissWeatherAlert = viewModel::dismissWeatherAlert,
                     onToggleWeatherCollapsed = viewModel::toggleWeatherCollapsed,
                     onFilterChange = viewModel::setHubFilter,
                     onToggleActiveTaskListFilter = viewModel::toggleActiveTaskListFilter,
-                    onAddReminder = { text, cat, dateKey ->
-                        viewModel.addReminder(text = text, category = cat, explicitDateKey = dateKey)
+                    onSetDefaultTaskList = viewModel::setDefaultTaskList,
+                    onAddReminder = { text, cat, dateKey, taskListId ->
+                        viewModel.addReminder(
+                            text = text,
+                            category = cat,
+                            explicitDateKey = dateKey,
+                            explicitSourceId = taskListId,
+                        )
                     },
                     onToggleReminder = viewModel::toggleReminder,
                     onDeleteReminder = viewModel::deleteReminder,
@@ -440,6 +458,7 @@ private fun NernalFrameRoot(
                 onSyncNow = viewModel::syncGoogleNow,
                 onToggleCalendar = viewModel::toggleCalendarSelection,
                 onToggleTaskList = viewModel::toggleTaskListSelection,
+                onSetDefaultTaskList = viewModel::setDefaultTaskList,
                 onCreateTaskList = viewModel::createGoogleTaskList,
                 onLaunchPicker = viewModel::launchGooglePhotosPicker,
                 onAddCustomSharedUrl = viewModel::addCustomSharedAlbumUrl,
@@ -467,6 +486,29 @@ private fun NernalFrameRoot(
                 state = state,
                 onInstall = { viewModel.downloadAndInstallUpdate(context) },
                 onDismiss = viewModel::dismissUpdateDialog,
+            )
+        }
+
+        val selectedWeatherIso = state.selectedWeatherDayIso
+        val weatherSnapshot = state.weather
+        if (selectedWeatherIso != null && weatherSnapshot != null) {
+            WeatherDetailDialog(
+                weather = weatherSnapshot,
+                selectedDateIso = selectedWeatherIso,
+                locationName = state.userLocation.name,
+                activeAlerts = state.activeWeatherAlerts,
+                canReadAloud = state.capabilities.hasAudioOutput,
+                onSelectDay = viewModel::setSelectedWeatherDay,
+                onOpenRadar = {
+                    viewModel.setSelectedWeatherDay(null)
+                    viewModel.openRadarModal()
+                },
+                onReadAloud = { day ->
+                    val isToday = day.dateIso == weatherSnapshot.daily.firstOrNull()?.dateIso ||
+                        day.dayLabel.equals("Today", ignoreCase = true)
+                    viewModel.speakAloud(buildWeatherAssessment(weatherSnapshot, day, isToday))
+                },
+                onDismiss = { viewModel.setSelectedWeatherDay(null) },
             )
         }
 

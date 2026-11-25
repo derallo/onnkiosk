@@ -56,6 +56,7 @@ import androidx.compose.material.icons.rounded.FilterDrama
 import androidx.compose.material.icons.rounded.FilterList
 import androidx.compose.material.icons.rounded.Grain
 import androidx.compose.material.icons.rounded.KeyboardHide
+import androidx.compose.material.icons.rounded.LastPage
 import androidx.compose.material.icons.rounded.MenuBook
 import androidx.compose.material.icons.rounded.Mic
 import androidx.compose.material.icons.rounded.Person
@@ -102,6 +103,7 @@ import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.SolidColor
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalContext
@@ -114,12 +116,15 @@ import androidx.compose.ui.text.style.TextDecoration
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.compose.ui.window.Dialog
+import androidx.compose.ui.window.DialogProperties
 import com.nernal.frame.NernalUiState
 import com.nernal.frame.data.CalendarViewMode
 import com.nernal.frame.data.DailyForecast
 import com.nernal.frame.data.GoogleAuthState
 import com.nernal.frame.data.GoogleCalendarInfo
 import com.nernal.frame.data.GoogleTaskListInfo
+import com.nernal.frame.data.HourlyForecast
 import com.nernal.frame.data.HubFilter
 import com.nernal.frame.data.PiConnectionState
 import com.nernal.frame.data.ReminderCategory
@@ -128,9 +133,14 @@ import com.nernal.frame.data.VoiceAssistantState
 import com.nernal.frame.data.WeatherAlert
 import com.nernal.frame.data.WeatherConditionKind
 import com.nernal.frame.data.WeatherData
+import com.nernal.frame.data.buildWeatherAssessment
 import com.nernal.frame.data.eventColor
+import com.nernal.frame.data.formatWeatherTimeIso
 import com.nernal.frame.data.parseTimeLabelToMinutes
 import com.nernal.frame.data.selectNextUpcomingEvent
+import com.nernal.frame.data.uvIndexCategory
+import com.nernal.frame.data.windDirectionCompass
+import com.nernal.frame.data.wmoDescription
 import com.nernal.frame.data.wmoKind
 import java.time.LocalDate
 import java.time.YearMonth
@@ -142,11 +152,13 @@ import kotlinx.coroutines.delay
 fun InformationalWing(
     state: NernalUiState,
     onOpenRadar: () -> Unit,
+    onWeatherDayClick: (String) -> Unit,
     onDismissWeatherAlert: (WeatherAlert) -> Unit,
     onToggleWeatherCollapsed: () -> Unit,
     onFilterChange: (HubFilter) -> Unit,
     onToggleActiveTaskListFilter: (String) -> Unit = {},
-    onAddReminder: (String, ReminderCategory, String?) -> Unit,
+    onSetDefaultTaskList: (String) -> Unit = {},
+    onAddReminder: (String, ReminderCategory, String?, String?) -> Unit,
     onToggleReminder: (String) -> Unit,
     onDeleteReminder: (String) -> Unit,
     onEventClick: (ReminderItem) -> Unit,
@@ -171,6 +183,7 @@ fun InformationalWing(
             weatherError = state.weatherError,
             weatherCollapsed = state.weatherCollapsed,
             onOpenRadar = onOpenRadar,
+            onWeatherDayClick = onWeatherDayClick,
             onDismissWeatherAlert = onDismissWeatherAlert,
             onToggleWeatherCollapsed = onToggleWeatherCollapsed,
             onEventClick = onEventClick,
@@ -184,9 +197,11 @@ fun InformationalWing(
             todayKey = state.todayKey,
             availableTaskLists = state.availableTaskLists,
             selectedTaskListIds = state.selectedTaskListIds,
+            defaultTaskListId = state.defaultTaskListId,
             activeTaskListFilters = state.activeTaskListFilters,
             availableCalendars = state.availableCalendars,
             onToggleActiveTaskListFilter = onToggleActiveTaskListFilter,
+            onSetDefaultTaskList = onSetDefaultTaskList,
             onFilterChange = onFilterChange,
             onCalendarViewModeChange = onCalendarViewModeChange,
             onAddReminder = onAddReminder,
@@ -215,6 +230,7 @@ private fun UnifiedHeaderCard(
     weatherError: String?,
     weatherCollapsed: Boolean,
     onOpenRadar: () -> Unit,
+    onWeatherDayClick: (String) -> Unit,
     onDismissWeatherAlert: (WeatherAlert) -> Unit,
     onToggleWeatherCollapsed: () -> Unit,
     onEventClick: (ReminderItem) -> Unit,
@@ -248,37 +264,33 @@ private fun UnifiedHeaderCard(
                 .padding(horizontal = 10.dp, vertical = 8.dp),
             verticalArrangement = Arrangement.spacedBy(6.dp),
         ) {
-            // ROW 1: Time + Today's Day & Date (same size!) with Location slightly smaller right below + Alerts icon + Weather Collapse icon
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.SpaceBetween,
-            ) {
-                TimeDateLocationHeader(
-                    time = time,
-                    amPm = amPm,
-                    dayDate = dayDate.ifBlank { date },
-                    locationName = locationName,
-                    modifier = Modifier.weight(1f, fill = false),
-                )
-
-                Row(
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(6.dp),
-                ) {
-                    if (activeAlerts.isNotEmpty()) {
-                        WeatherAlertIconButton(
-                            alertCount = activeAlerts.size,
-                            onClick = { showAlertsDialog = true },
+            // ROW 1: Large Time + Alerts/Weather Collapse icons, with full-width Day/Date & Location below
+            TimeDateLocationHeader(
+                time = time,
+                amPm = amPm,
+                dayDate = dayDate.ifBlank { date },
+                locationName = locationName,
+                stackTimeAndDate = true,
+                trailingActions = {
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(6.dp),
+                    ) {
+                        if (activeAlerts.isNotEmpty()) {
+                            WeatherAlertIconButton(
+                                alertCount = activeAlerts.size,
+                                onClick = { showAlertsDialog = true },
+                            )
+                        }
+                        WeatherCollapseButton(
+                            collapsed = weatherCollapsed,
+                            weather = weather,
+                            onClick = onToggleWeatherCollapsed,
                         )
                     }
-                    WeatherCollapseButton(
-                        collapsed = weatherCollapsed,
-                        weather = weather,
-                        onClick = onToggleWeatherCollapsed,
-                    )
-                }
-            }
+                },
+                modifier = Modifier.fillMaxWidth(),
+            )
 
             // Collapsible weather block (big current weather + Radar icon + future forecast cards)
             if (!weatherCollapsed) {
@@ -286,12 +298,14 @@ private fun UnifiedHeaderCard(
                     weather = weather,
                     weatherLoading = weatherLoading,
                     weatherError = weatherError,
+                    onOpenWeatherDetail = onWeatherDayClick,
                     onOpenRadar = onOpenRadar,
                     modifier = Modifier.fillMaxWidth(),
                 )
 
                 FutureForecastRow(
                     weather = weather,
+                    onDayClick = onWeatherDayClick,
                     modifier = Modifier.fillMaxWidth(),
                 )
             }
@@ -434,55 +448,99 @@ private fun TimeDateLocationHeader(
     amPm: String,
     dayDate: String,
     locationName: String,
+    stackTimeAndDate: Boolean = false,
+    trailingActions: (@Composable () -> Unit)? = null,
     modifier: Modifier = Modifier,
 ) {
+    val town = locationName.ifBlank { "LOCAL TIME" }
     Column(
         modifier = modifier,
-        verticalArrangement = Arrangement.spacedBy(1.dp),
+        verticalArrangement = Arrangement.spacedBy(2.dp),
     ) {
-        Row(
-            verticalAlignment = Alignment.Top,
-            horizontalArrangement = Arrangement.spacedBy(14.dp),
-        ) {
+        if (stackTimeAndDate) {
             Row(
-                verticalAlignment = Alignment.Bottom,
-                horizontalArrangement = Arrangement.spacedBy(4.dp),
+                modifier = Modifier.fillMaxWidth(),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.SpaceBetween,
             ) {
-                Text(
-                    text = time.ifEmpty { "--:--" },
-                    color = NernalColors.Ink,
-                    fontSize = 36.sp,
-                    lineHeight = 36.sp,
-                    fontWeight = FontWeight.Bold,
-                    style = TextStyle(fontFeatureSettings = "tnum"),
-                    maxLines = 1,
-                )
-                Text(
-                    text = amPm,
-                    color = NernalColors.InkMuted,
-                    fontSize = 14.sp,
-                    fontWeight = FontWeight.Bold,
-                    modifier = Modifier.padding(bottom = 3.dp),
-                    maxLines = 1,
-                )
+                Row(
+                    verticalAlignment = Alignment.Bottom,
+                    horizontalArrangement = Arrangement.spacedBy(5.dp),
+                ) {
+                    Text(
+                        text = time.ifEmpty { "--:--" },
+                        color = NernalColors.Ink,
+                        fontSize = 63.sp,
+                        lineHeight = 61.sp,
+                        fontWeight = FontWeight.Bold,
+                        style = TextStyle(fontFeatureSettings = "tnum"),
+                        maxLines = 1,
+                    )
+                    Text(
+                        text = amPm,
+                        color = NernalColors.InkMuted,
+                        fontSize = 24.sp,
+                        fontWeight = FontWeight.Bold,
+                        modifier = Modifier.padding(bottom = 6.dp),
+                        maxLines = 1,
+                    )
+                }
+                trailingActions?.invoke()
             }
 
             Text(
                 text = dayDate,
                 color = NernalColors.Ink,
-                fontSize = 36.sp,
-                lineHeight = 36.sp,
+                fontSize = 60.sp,
+                lineHeight = 58.sp,
                 fontWeight = FontWeight.Bold,
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis,
             )
+        } else {
+            Row(
+                verticalAlignment = Alignment.Top,
+                horizontalArrangement = Arrangement.spacedBy(18.dp),
+            ) {
+                Row(
+                    verticalAlignment = Alignment.Bottom,
+                    horizontalArrangement = Arrangement.spacedBy(5.dp),
+                ) {
+                    Text(
+                        text = time.ifEmpty { "--:--" },
+                        color = NernalColors.Ink,
+                        fontSize = 63.sp,
+                        lineHeight = 61.sp,
+                        fontWeight = FontWeight.Bold,
+                        style = TextStyle(fontFeatureSettings = "tnum"),
+                        maxLines = 1,
+                    )
+                    Text(
+                        text = amPm,
+                        color = NernalColors.InkMuted,
+                        fontSize = 24.sp,
+                        fontWeight = FontWeight.Bold,
+                        modifier = Modifier.padding(bottom = 6.dp),
+                        maxLines = 1,
+                    )
+                }
+
+                Text(
+                    text = dayDate,
+                    color = NernalColors.Ink,
+                    fontSize = 63.sp,
+                    lineHeight = 61.sp,
+                    fontWeight = FontWeight.Bold,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                )
+            }
         }
 
-        val town = locationName.ifBlank { "LOCAL TIME" }
         Text(
             text = town,
             color = NernalColors.InkMuted,
-            fontSize = 13.sp,
+            fontSize = 14.sp,
             fontWeight = FontWeight.SemiBold,
             letterSpacing = 0.8.sp,
             maxLines = 1,
@@ -580,6 +638,7 @@ private fun CurrentWeatherWithRadarRow(
     weather: WeatherData?,
     weatherLoading: Boolean,
     weatherError: String?,
+    onOpenWeatherDetail: (String) -> Unit,
     onOpenRadar: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
@@ -592,58 +651,66 @@ private fun CurrentWeatherWithRadarRow(
             val (icon, tint) = weatherIconAndTint(weather.weatherCode, weather.isDay)
             val todayDaily = weather.daily.firstOrNull { it.dayLabel.equals("Today", ignoreCase = true) }
                 ?: weather.daily.firstOrNull()
-            Row(
+            Surface(
+                onClick = { todayDaily?.dateIso?.let(onOpenWeatherDetail) },
+                enabled = todayDaily != null,
+                color = Color.Transparent,
+                shape = RoundedCornerShape(12.dp),
                 modifier = Modifier.weight(1f),
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(10.dp),
             ) {
-                Icon(
-                    imageVector = icon,
-                    contentDescription = weather.description,
-                    tint = tint,
-                    modifier = Modifier.size(40.dp),
-                )
-                Text(
-                    text = "${weather.currentTempF}°",
-                    color = NernalColors.Ink,
-                    fontSize = 40.sp,
-                    lineHeight = 42.sp,
-                    fontWeight = FontWeight.Bold,
-                    style = TextStyle(fontFeatureSettings = "tnum"),
-                )
-                Column(
-                    verticalArrangement = Arrangement.spacedBy(2.dp),
-                    modifier = Modifier.weight(1f, fill = false),
+                Row(
+                    modifier = Modifier.padding(vertical = 2.dp, horizontal = 2.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(10.dp),
                 ) {
-                    Row(
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    Icon(
+                        imageVector = icon,
+                        contentDescription = weather.description,
+                        tint = tint,
+                        modifier = Modifier.size(40.dp),
+                    )
+                    Text(
+                        text = "${weather.currentTempF}°",
+                        color = NernalColors.Ink,
+                        fontSize = 40.sp,
+                        lineHeight = 42.sp,
+                        fontWeight = FontWeight.Bold,
+                        style = TextStyle(fontFeatureSettings = "tnum"),
+                    )
+                    Column(
+                        verticalArrangement = Arrangement.spacedBy(2.dp),
+                        modifier = Modifier.weight(1f, fill = false),
                     ) {
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(8.dp),
+                        ) {
+                            Text(
+                                text = weather.description,
+                                color = NernalColors.Gold,
+                                fontSize = 17.sp,
+                                fontWeight = FontWeight.Bold,
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis,
+                            )
+                            if (todayDaily != null) {
+                                Text(
+                                    text = "H:${todayDaily.maxTempF}° L:${todayDaily.minTempF}° · ${todayDaily.precipChance}%",
+                                    color = NernalColors.Ink,
+                                    fontSize = 14.sp,
+                                    fontWeight = FontWeight.SemiBold,
+                                    maxLines = 1,
+                                )
+                            }
+                        }
                         Text(
-                            text = weather.description,
-                            color = NernalColors.Gold,
-                            fontSize = 17.sp,
-                            fontWeight = FontWeight.Bold,
+                            text = "Feels ${weather.apparentTempF}° · ${weather.humidityPercent}% · ${weather.windMph} mph",
+                            color = NernalColors.InkMuted,
+                            fontSize = 13.sp,
                             maxLines = 1,
                             overflow = TextOverflow.Ellipsis,
                         )
-                        if (todayDaily != null) {
-                            Text(
-                                text = "H:${todayDaily.maxTempF}° L:${todayDaily.minTempF}° · ${todayDaily.precipChance}%",
-                                color = NernalColors.Ink,
-                                fontSize = 14.sp,
-                                fontWeight = FontWeight.SemiBold,
-                                maxLines = 1,
-                            )
-                        }
                     }
-                    Text(
-                        text = "Feels ${weather.apparentTempF}° · ${weather.humidityPercent}% · ${weather.windMph} mph",
-                        color = NernalColors.InkMuted,
-                        fontSize = 13.sp,
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis,
-                    )
                 }
             }
         } else {
@@ -682,6 +749,7 @@ private fun CurrentWeatherWithRadarRow(
 @Composable
 private fun FutureForecastRow(
     weather: WeatherData?,
+    onDayClick: (String) -> Unit,
     modifier: Modifier = Modifier,
 ) {
     val futureDays = remember(weather) {
@@ -696,6 +764,7 @@ private fun FutureForecastRow(
             for (day in futureDays) {
                 ForecastDayChip(
                     day = day,
+                    onClick = { onDayClick(day.dateIso) },
                     modifier = Modifier.weight(1f),
                 )
             }
@@ -706,10 +775,12 @@ private fun FutureForecastRow(
 @Composable
 private fun ForecastDayChip(
     day: DailyForecast,
+    onClick: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
     val (icon, tint) = weatherIconAndTint(day.weatherCode, isDay = true)
     Surface(
+        onClick = onClick,
         modifier = modifier,
         color = NernalColors.CardInner,
         shape = RoundedCornerShape(12.dp),
@@ -794,12 +865,14 @@ private fun OmniHubCard(
     todayKey: String,
     availableTaskLists: List<GoogleTaskListInfo> = emptyList(),
     selectedTaskListIds: Set<String> = emptySet(),
+    defaultTaskListId: String? = null,
     activeTaskListFilters: Set<String> = emptySet(),
     availableCalendars: List<GoogleCalendarInfo> = emptyList(),
     onToggleActiveTaskListFilter: (String) -> Unit = {},
+    onSetDefaultTaskList: (String) -> Unit = {},
     onFilterChange: (HubFilter) -> Unit,
     onCalendarViewModeChange: (CalendarViewMode) -> Unit = {},
-    onAddReminder: (String, ReminderCategory, String?) -> Unit,
+    onAddReminder: (String, ReminderCategory, String?, String?) -> Unit,
     onToggleReminder: (String) -> Unit,
     onDeleteReminder: (String) -> Unit,
     onEventClick: (ReminderItem) -> Unit,
@@ -1098,8 +1171,11 @@ private fun OmniHubCard(
             if (showAddDialog) {
                 AddReminderDialog(
                     initialCategory = if (activeFilter == HubFilter.EVENTS) ReminderCategory.EVENT else ReminderCategory.TASK,
+                    availableTaskLists = relevantTaskLists,
+                    defaultTaskListId = defaultTaskListId,
+                    onSetDefaultTaskList = onSetDefaultTaskList,
                     onDismiss = { showAddDialog = false },
-                    onAdd = { t, c -> onAddReminder(t, c, null) },
+                    onAdd = { t, c, listId -> onAddReminder(t, c, null, listId) },
                 )
             }
 
@@ -1121,11 +1197,14 @@ private fun OmniHubCard(
                                         MonthCalendarView(
                                             reminders = reminders,
                                             availableCalendars = availableCalendars,
+                                            availableTaskLists = relevantTaskLists,
+                                            defaultTaskListId = defaultTaskListId,
+                                            onSetDefaultTaskList = onSetDefaultTaskList,
                                             todayKey = todayKey,
                                             onEventClick = onEventClick,
                                             onToggleReminder = onToggleReminder,
-                                            onAddEventForDate = { title, dateKey ->
-                                                onAddReminder(title, ReminderCategory.EVENT, dateKey)
+                                            onAddItemForDate = { title, category, dateKey, listId ->
+                                                onAddReminder(title, category, dateKey, listId)
                                             },
                                             isPrimaryView = false,
                                         )
@@ -1785,11 +1864,19 @@ fun EventDetailsDialog(
 fun AddReminderDialog(
     initialCategory: ReminderCategory = ReminderCategory.TASK,
     dateLabel: String? = null,
+    availableTaskLists: List<GoogleTaskListInfo> = emptyList(),
+    defaultTaskListId: String? = null,
+    onSetDefaultTaskList: ((String) -> Unit)? = null,
     onDismiss: () -> Unit,
-    onAdd: (text: String, category: ReminderCategory) -> Unit,
+    onAdd: (text: String, category: ReminderCategory, taskListId: String?) -> Unit,
 ) {
     var text by remember { mutableStateOf("") }
     var category by remember { mutableStateOf(initialCategory) }
+    val effectiveDefaultId = remember(availableTaskLists, defaultTaskListId) {
+        defaultTaskListId?.takeIf { id -> availableTaskLists.any { it.id == id } }
+            ?: availableTaskLists.firstOrNull()?.id
+    }
+    var selectedTaskListId by remember(effectiveDefaultId) { mutableStateOf(effectiveDefaultId) }
     val focusRequester = remember { FocusRequester() }
 
     LaunchedEffect(Unit) {
@@ -1823,7 +1910,7 @@ fun AddReminderDialog(
         text = {
             Column(
                 modifier = Modifier.fillMaxWidth(),
-                verticalArrangement = Arrangement.spacedBy(16.dp),
+                verticalArrangement = Arrangement.spacedBy(14.dp),
             ) {
                 // Category Pills
                 Row(
@@ -1866,6 +1953,89 @@ fun AddReminderDialog(
                     }
                 }
 
+                if (category == ReminderCategory.TASK && availableTaskLists.isNotEmpty()) {
+                    Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                        ) {
+                            Text(
+                                text = "Task List",
+                                color = NernalColors.InkMuted,
+                                fontSize = 13.sp,
+                                fontWeight = FontWeight.SemiBold,
+                            )
+                            val activeListId = selectedTaskListId
+                            if (activeListId != null && onSetDefaultTaskList != null) {
+                                if (activeListId == defaultTaskListId) {
+                                    Text(
+                                        text = "Default",
+                                        color = NernalColors.Gold,
+                                        fontSize = 12.sp,
+                                        fontWeight = FontWeight.Bold,
+                                    )
+                                } else {
+                                    Text(
+                                        text = "Set as default",
+                                        color = NernalColors.Accent,
+                                        fontSize = 12.sp,
+                                        fontWeight = FontWeight.SemiBold,
+                                        modifier = Modifier
+                                            .clip(RoundedCornerShape(6.dp))
+                                            .clickable { onSetDefaultTaskList(activeListId) }
+                                            .padding(horizontal = 6.dp, vertical = 2.dp),
+                                    )
+                                }
+                            }
+                        }
+
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .horizontalScroll(rememberScrollState()),
+                            horizontalArrangement = Arrangement.spacedBy(6.dp),
+                        ) {
+                            for (list in availableTaskLists) {
+                                val isSelected = list.id == selectedTaskListId
+                                val isDef = list.id == defaultTaskListId
+                                Surface(
+                                    onClick = { selectedTaskListId = list.id },
+                                    color = if (isSelected) NernalColors.Amber.copy(alpha = 0.2f) else NernalColors.CardInner,
+                                    shape = RoundedCornerShape(10.dp),
+                                    border = BorderStroke(
+                                        1.dp,
+                                        if (isSelected) NernalColors.Amber else NernalColors.BorderSubtle,
+                                    ),
+                                    modifier = Modifier.height(40.dp),
+                                ) {
+                                    Row(
+                                        verticalAlignment = Alignment.CenterVertically,
+                                        horizontalArrangement = Arrangement.spacedBy(5.dp),
+                                        modifier = Modifier.padding(horizontal = 10.dp),
+                                    ) {
+                                        Text(
+                                            text = list.title,
+                                            color = if (isSelected) NernalColors.Ink else NernalColors.InkMuted,
+                                            fontSize = 13.sp,
+                                            fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Medium,
+                                            maxLines = 1,
+                                        )
+                                        if (isDef) {
+                                            Text(
+                                                text = "★",
+                                                color = NernalColors.Gold,
+                                                fontSize = 12.sp,
+                                                fontWeight = FontWeight.Bold,
+                                            )
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+
                 // Text field
                 OutlinedTextField(
                     value = text,
@@ -1888,7 +2058,7 @@ fun AddReminderDialog(
                     keyboardActions = KeyboardActions(onDone = {
                         val trimmed = text.trim()
                         if (trimmed.isNotEmpty()) {
-                            onAdd(trimmed, category)
+                            onAdd(trimmed, category, if (category == ReminderCategory.TASK) selectedTaskListId else null)
                             onDismiss()
                         }
                     }),
@@ -1903,7 +2073,7 @@ fun AddReminderDialog(
                 onClick = {
                     val trimmed = text.trim()
                     if (trimmed.isNotEmpty()) {
-                        onAdd(trimmed, category)
+                        onAdd(trimmed, category, if (category == ReminderCategory.TASK) selectedTaskListId else null)
                         onDismiss()
                     }
                 },
@@ -1972,10 +2142,13 @@ private fun precipIconAndTint(code: Int): Pair<ImageVector, Color> =
 fun MonthCalendarView(
     reminders: List<ReminderItem>,
     availableCalendars: List<GoogleCalendarInfo>,
+    availableTaskLists: List<GoogleTaskListInfo> = emptyList(),
+    defaultTaskListId: String? = null,
+    onSetDefaultTaskList: ((String) -> Unit)? = null,
     todayKey: String,
     onEventClick: (ReminderItem) -> Unit,
     onToggleReminder: (String) -> Unit = {},
-    onAddEventForDate: ((String, String) -> Unit)? = null,
+    onAddItemForDate: ((String, ReminderCategory, String, String?) -> Unit)? = null,
     isPrimaryView: Boolean = false,
     modifier: Modifier = Modifier,
 ) {
@@ -2010,13 +2183,16 @@ fun MonthCalendarView(
             events = dayEvents,
             tasks = dayTasks,
             availableCalendars = availableCalendars,
+            availableTaskLists = availableTaskLists,
+            defaultTaskListId = defaultTaskListId,
+            onSetDefaultTaskList = onSetDefaultTaskList,
             onEventClick = { ev ->
                 popupDate = null
                 onEventClick(ev)
             },
             onToggleTask = onToggleReminder,
-            onAddEvent = onAddEventForDate?.let { fn ->
-                { title -> fn(title, targetKey) }
+            onAddItem = onAddItemForDate?.let { fn ->
+                { title, category, taskListId -> fn(title, category, targetKey, taskListId) }
             },
             onDismiss = { popupDate = null },
         )
@@ -2375,24 +2551,30 @@ private fun DayEventsDialog(
     events: List<ReminderItem>,
     tasks: List<ReminderItem>,
     availableCalendars: List<GoogleCalendarInfo>,
+    availableTaskLists: List<GoogleTaskListInfo> = emptyList(),
+    defaultTaskListId: String? = null,
+    onSetDefaultTaskList: ((String) -> Unit)? = null,
     onEventClick: (ReminderItem) -> Unit,
     onToggleTask: (String) -> Unit,
-    onAddEvent: ((String) -> Unit)? = null,
+    onAddItem: ((String, ReminderCategory, String?) -> Unit)? = null,
     onDismiss: () -> Unit,
 ) {
     val dateHeading = remember(date) {
         date.format(DateTimeFormatter.ofPattern("EEEE, MMMM d", Locale.US))
     }
-    var showAddEventForDay by remember { mutableStateOf(false) }
+    var showAddForDay by remember { mutableStateOf(false) }
 
-    if (showAddEventForDay && onAddEvent != null) {
+    if (showAddForDay && onAddItem != null) {
         AddReminderDialog(
             initialCategory = ReminderCategory.EVENT,
             dateLabel = dateHeading,
-            onDismiss = { showAddEventForDay = false },
-            onAdd = { title, _ ->
-                onAddEvent(title)
-                showAddEventForDay = false
+            availableTaskLists = availableTaskLists,
+            defaultTaskListId = defaultTaskListId,
+            onSetDefaultTaskList = onSetDefaultTaskList,
+            onDismiss = { showAddForDay = false },
+            onAdd = { title, category, taskListId ->
+                onAddItem(title, category, taskListId)
+                showAddForDay = false
             },
         )
     }
@@ -2557,10 +2739,10 @@ private fun DayEventsDialog(
                 }
             }
         },
-        dismissButton = if (onAddEvent != null) {
+        dismissButton = if (onAddItem != null) {
             {
                 OutlinedButton(
-                    onClick = { showAddEventForDay = true },
+                    onClick = { showAddForDay = true },
                     border = BorderStroke(1.dp, NernalColors.Gold.copy(alpha = 0.7f)),
                     shape = RoundedCornerShape(12.dp),
                     modifier = Modifier.height(48.dp),
@@ -2572,7 +2754,7 @@ private fun DayEventsDialog(
                         modifier = Modifier.size(18.dp),
                     )
                     Spacer(Modifier.width(6.dp))
-                    Text("Add Event", color = NernalColors.Gold, fontWeight = FontWeight.Bold, fontSize = 14.sp)
+                    Text("Add Task / Event", color = NernalColors.Gold, fontWeight = FontWeight.Bold, fontSize = 14.sp)
                 }
             }
         } else null,
@@ -3282,11 +3464,13 @@ fun WeekCalendarView(
 fun CalendarPrimaryWing(
     state: NernalUiState,
     onOpenRadar: () -> Unit,
+    onWeatherDayClick: (String) -> Unit,
     onDismissWeatherAlert: (WeatherAlert) -> Unit,
     onToggleWeatherCollapsed: () -> Unit,
     onFilterChange: (HubFilter) -> Unit,
     onToggleActiveTaskListFilter: (String) -> Unit = {},
-    onAddReminder: (String, ReminderCategory, String?) -> Unit,
+    onSetDefaultTaskList: (String) -> Unit = {},
+    onAddReminder: (String, ReminderCategory, String?, String?) -> Unit,
     onToggleReminder: (String) -> Unit,
     onDeleteReminder: (String) -> Unit,
     onEventClick: (ReminderItem) -> Unit,
@@ -3305,6 +3489,11 @@ fun CalendarPrimaryWing(
     var calMenuExpanded by remember { mutableStateOf(false) }
     var showAddDialog by remember { mutableStateOf(false) }
     var showAlertsDialog by remember { mutableStateOf(false) }
+
+    val relevantTaskLists = remember(state.availableTaskLists, state.selectedTaskListIds) {
+        val filtered = state.availableTaskLists.filter { it.id in state.selectedTaskListIds }
+        if (filtered.isNotEmpty()) filtered else state.availableTaskLists
+    }
 
     val activeAlerts = state.activeWeatherAlerts
     if (showAlertsDialog && activeAlerts.isNotEmpty()) {
@@ -3334,7 +3523,7 @@ fun CalendarPrimaryWing(
                     .padding(horizontal = 14.dp, vertical = 10.dp),
                 verticalArrangement = Arrangement.spacedBy(8.dp),
             ) {
-                // ROW 1: Time + Day/Date + Location + Weather Collapse on Left | Speak, Memories, Photos, (Setup: Account/Wi-Fi), Eye, Night, Settings on Right
+                // ROW 1: Time + Day/Date + Location + Weather Collapse on Left | Speak, Memories, Pi Sync, (Setup: Account/Wi-Fi), Eye, Night, Settings on Right
                 Row(
                     modifier = Modifier.fillMaxWidth(),
                     verticalAlignment = Alignment.CenterVertically,
@@ -3350,6 +3539,7 @@ fun CalendarPrimaryWing(
                             amPm = state.clockAmPm,
                             dayDate = state.clockDayDate.ifBlank { state.clockDate },
                             locationName = state.userLocation.name,
+                            stackTimeAndDate = false,
                             modifier = Modifier.weight(1f, fill = false),
                         )
 
@@ -3367,7 +3557,7 @@ fun CalendarPrimaryWing(
                         )
                     }
 
-                    // RIGHT ROW: Speak (outlined), Memories, Pi Sync, Photos, (Setup: Account/Wi-Fi), Eye, Night, SETTINGS (far right)
+                    // RIGHT ROW: Speak (outlined), Memories, Pi Sync, (Setup: Account/Wi-Fi), Eye, Night, SETTINGS (far right)
                     Row(
                         verticalAlignment = Alignment.CenterVertically,
                         horizontalArrangement = Arrangement.spacedBy(6.dp),
@@ -3450,38 +3640,6 @@ fun CalendarPrimaryWing(
                                         color = NernalColors.Ink,
                                         fontSize = 12.sp,
                                         fontWeight = FontWeight.Medium,
-                                    )
-                                }
-                            }
-                        }
-
-                        if (onToggleCalendarPrimary != null) {
-                            Surface(
-                                onClick = {
-                                    android.util.Log.d("NernalClick", "Photos clicked!")
-                                    onToggleCalendarPrimary(false)
-                                },
-                                color = NernalColors.Card,
-                                shape = RoundedCornerShape(12.dp),
-                                border = BorderStroke(1.dp, NernalColors.Gold.copy(alpha = 0.6f)),
-                                modifier = Modifier.height(48.dp),
-                            ) {
-                                Row(
-                                    modifier = Modifier.padding(horizontal = 12.dp),
-                                    verticalAlignment = Alignment.CenterVertically,
-                                    horizontalArrangement = Arrangement.spacedBy(6.dp),
-                                ) {
-                                    Icon(
-                                        imageVector = Icons.Rounded.PhotoLibrary,
-                                        contentDescription = "Show Photos",
-                                        tint = NernalColors.Gold,
-                                        modifier = Modifier.size(20.dp),
-                                    )
-                                    Text(
-                                        text = "Photos",
-                                        color = NernalColors.Gold,
-                                        fontSize = 13.sp,
-                                        fontWeight = FontWeight.Bold,
                                     )
                                 }
                             }
@@ -3592,6 +3750,7 @@ fun CalendarPrimaryWing(
                             weather = state.weather,
                             weatherLoading = state.weatherLoading,
                             weatherError = state.weatherError,
+                            onOpenWeatherDetail = onWeatherDayClick,
                             onOpenRadar = onOpenRadar,
                             modifier = Modifier.weight(0.9f),
                         )
@@ -3605,6 +3764,7 @@ fun CalendarPrimaryWing(
 
                         FutureForecastRow(
                             weather = state.weather,
+                            onDayClick = onWeatherDayClick,
                             modifier = Modifier.weight(1.1f),
                         )
                     }
@@ -3621,12 +3781,13 @@ fun CalendarPrimaryWing(
                 .fillMaxWidth()
                 .weight(1f),
         ) {
-            Column(
-                modifier = Modifier
-                    .fillMaxSize()
-                    .padding(14.dp),
-                verticalArrangement = Arrangement.spacedBy(10.dp),
-            ) {
+            Box(modifier = Modifier.fillMaxSize()) {
+                Column(
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .padding(14.dp),
+                    verticalArrangement = Arrangement.spacedBy(10.dp),
+                ) {
                 // Header with Primary Navigation Tabs (Calendar / Tasks / All)
                 Row(
                     modifier = Modifier.fillMaxWidth(),
@@ -3765,8 +3926,11 @@ fun CalendarPrimaryWing(
                 if (showAddDialog) {
                     AddReminderDialog(
                         initialCategory = if (state.hubFilter == HubFilter.EVENTS) ReminderCategory.EVENT else ReminderCategory.TASK,
+                        availableTaskLists = relevantTaskLists,
+                        defaultTaskListId = state.defaultTaskListId,
+                        onSetDefaultTaskList = onSetDefaultTaskList,
                         onDismiss = { showAddDialog = false },
-                        onAdd = { t, c -> onAddReminder(t, c, null) },
+                        onAdd = { t, c, listId -> onAddReminder(t, c, null, listId) },
                     )
                 }
 
@@ -3785,11 +3949,14 @@ fun CalendarPrimaryWing(
                                     MonthCalendarView(
                                         reminders = state.reminders,
                                         availableCalendars = state.availableCalendars,
+                                        availableTaskLists = relevantTaskLists,
+                                        defaultTaskListId = state.defaultTaskListId,
+                                        onSetDefaultTaskList = onSetDefaultTaskList,
                                         todayKey = state.todayKey,
                                         onEventClick = onEventClick,
                                         onToggleReminder = onToggleReminder,
-                                        onAddEventForDate = { title, dateKey ->
-                                            onAddReminder(title, ReminderCategory.EVENT, dateKey)
+                                        onAddItemForDate = { title, category, dateKey, listId ->
+                                            onAddReminder(title, category, dateKey, listId)
                                         },
                                         isPrimaryView = true,
                                     )
@@ -3822,9 +3989,11 @@ fun CalendarPrimaryWing(
                                         todayKey = state.todayKey,
                                         availableTaskLists = state.availableTaskLists,
                                         selectedTaskListIds = state.selectedTaskListIds,
+                                        defaultTaskListId = state.defaultTaskListId,
                                         activeTaskListFilters = state.activeTaskListFilters,
                                         availableCalendars = state.availableCalendars,
                                         onToggleActiveTaskListFilter = onToggleActiveTaskListFilter,
+                                        onSetDefaultTaskList = onSetDefaultTaskList,
                                         onFilterChange = onFilterChange,
                                         onCalendarViewModeChange = onCalendarViewModeChange,
                                         onAddReminder = onAddReminder,
@@ -3846,9 +4015,11 @@ fun CalendarPrimaryWing(
                                 todayKey = state.todayKey,
                                 availableTaskLists = state.availableTaskLists,
                                 selectedTaskListIds = state.selectedTaskListIds,
+                                defaultTaskListId = state.defaultTaskListId,
                                 activeTaskListFilters = state.activeTaskListFilters,
                                 availableCalendars = state.availableCalendars,
                                 onToggleActiveTaskListFilter = onToggleActiveTaskListFilter,
+                                onSetDefaultTaskList = onSetDefaultTaskList,
                                 onFilterChange = onFilterChange,
                                 onCalendarViewModeChange = onCalendarViewModeChange,
                                 onAddReminder = onAddReminder,
@@ -3862,6 +4033,503 @@ fun CalendarPrimaryWing(
                     }
                 }
             }
+
+            if (onToggleCalendarPrimary != null) {
+                Surface(
+                    onClick = { onToggleCalendarPrimary(false) },
+                    color = NernalColors.CardInner,
+                    shape = RoundedCornerShape(12.dp),
+                    border = BorderStroke(1.dp, NernalColors.Gold.copy(alpha = 0.65f)),
+                    shadowElevation = 6.dp,
+                    modifier = Modifier
+                        .align(Alignment.BottomEnd)
+                        .padding(8.dp)
+                        .size(48.dp),
+                ) {
+                    Box(contentAlignment = Alignment.Center) {
+                        Icon(
+                            imageVector = Icons.Rounded.LastPage,
+                            contentDescription = "Show Photos",
+                            tint = NernalColors.Gold,
+                            modifier = Modifier
+                                .size(22.dp)
+                                .graphicsLayer(scaleX = -1f),
+                        )
+                    }
+                }
+            }
+        }
+    }
+}
+}
+
+@Composable
+fun WeatherDetailDialog(
+    weather: WeatherData,
+    selectedDateIso: String,
+    locationName: String,
+    activeAlerts: List<WeatherAlert>,
+    canReadAloud: Boolean,
+    onSelectDay: (String) -> Unit,
+    onOpenRadar: () -> Unit,
+    onReadAloud: (DailyForecast) -> Unit,
+    onDismiss: () -> Unit,
+) {
+    val selectedDay = remember(weather, selectedDateIso) {
+        weather.daily.firstOrNull { it.dateIso == selectedDateIso } ?: weather.daily.firstOrNull()
+    } ?: return
+
+    val isToday = selectedDay.dateIso == weather.daily.firstOrNull()?.dateIso ||
+        selectedDay.dayLabel.equals("Today", ignoreCase = true)
+    val dayConditionCode = if (isToday) weather.weatherCode else selectedDay.weatherCode
+    val dayConditionDesc = if (isToday) weather.description else wmoDescription(selectedDay.weatherCode)
+    val (headerIcon, headerTint) = weatherIconAndTint(dayConditionCode, isDay = if (isToday) weather.isDay else true)
+    val assessment = remember(weather, selectedDay, isToday) {
+        buildWeatherAssessment(weather, selectedDay, isToday)
+    }
+    val dayHourly = remember(weather.hourly, selectedDay.dateIso) {
+        weather.hourly.filter { it.dateIso == selectedDay.dateIso }
+    }
+
+    Dialog(
+        onDismissRequest = onDismiss,
+        properties = DialogProperties(usePlatformDefaultWidth = false),
+    ) {
+        Surface(
+            color = NernalColors.Card,
+            shape = RoundedCornerShape(24.dp),
+            border = BorderStroke(1.dp, NernalColors.Border),
+            modifier = Modifier
+                .fillMaxWidth(0.86f)
+                .fillMaxHeight(0.88f),
+        ) {
+            Column(modifier = Modifier.fillMaxSize()) {
+                // Header
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .background(NernalColors.CardInner)
+                        .padding(horizontal = 20.dp, vertical = 14.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                ) {
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(12.dp),
+                        modifier = Modifier.weight(1f),
+                    ) {
+                        Icon(
+                            imageVector = headerIcon,
+                            contentDescription = dayConditionDesc,
+                            tint = headerTint,
+                            modifier = Modifier.size(36.dp),
+                        )
+                        Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                            val dateHeading = if (isToday) {
+                                "Today · ${formatSectionDate(selectedDay.dateIso)}"
+                            } else {
+                                formatSectionDate(selectedDay.dateIso)
+                            }
+                            Text(
+                                text = dateHeading,
+                                color = NernalColors.Ink,
+                                fontSize = 20.sp,
+                                fontWeight = FontWeight.Bold,
+                            )
+                            Text(
+                                text = "${locationName.ifBlank { "Local Weather" }} · $dayConditionDesc",
+                                color = NernalColors.Gold,
+                                fontSize = 14.sp,
+                                fontWeight = FontWeight.SemiBold,
+                            )
+                        }
+                    }
+
+                    IconButton(onClick = onDismiss, modifier = Modifier.size(48.dp)) {
+                        Icon(Icons.Rounded.Close, contentDescription = "Close", tint = NernalColors.Ink)
+                    }
+                }
+
+                HorizontalDivider(color = NernalColors.BorderSubtle)
+
+                // Day switcher strip
+                if (weather.daily.size > 1) {
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .background(NernalColors.CardInner)
+                            .horizontalScroll(rememberScrollState())
+                            .padding(horizontal = 20.dp, vertical = 10.dp),
+                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    ) {
+                        for (day in weather.daily) {
+                            val isSelected = day.dateIso == selectedDay.dateIso
+                            val (dIcon, dTint) = weatherIconAndTint(day.weatherCode, isDay = true)
+                            Surface(
+                                onClick = { onSelectDay(day.dateIso) },
+                                color = if (isSelected) NernalColors.Gold else NernalColors.Card,
+                                shape = RoundedCornerShape(12.dp),
+                                border = BorderStroke(1.dp, if (isSelected) NernalColors.Gold else NernalColors.Border),
+                                modifier = Modifier.height(48.dp),
+                            ) {
+                                Row(
+                                    modifier = Modifier.padding(horizontal = 14.dp),
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                                ) {
+                                    Text(
+                                        text = day.dayLabel,
+                                        color = if (isSelected) NernalColors.Bg else NernalColors.Ink,
+                                        fontSize = 14.sp,
+                                        fontWeight = FontWeight.Bold,
+                                    )
+                                    Icon(
+                                        imageVector = dIcon,
+                                        contentDescription = null,
+                                        tint = if (isSelected) NernalColors.Bg else dTint,
+                                        modifier = Modifier.size(18.dp),
+                                    )
+                                    Text(
+                                        text = "${day.maxTempF}°/${day.minTempF}°",
+                                        color = if (isSelected) NernalColors.Bg else NernalColors.InkMuted,
+                                        fontSize = 13.sp,
+                                        fontWeight = FontWeight.SemiBold,
+                                        style = TextStyle(fontFeatureSettings = "tnum"),
+                                    )
+                                }
+                            }
+                        }
+                    }
+                    HorizontalDivider(color = NernalColors.BorderSubtle)
+                }
+
+                // Scrollable Body
+                val detailScrollState = rememberScrollState()
+                Column(
+                    modifier = Modifier
+                        .weight(1f)
+                        .fillMaxWidth()
+                        .verticalScroll(detailScrollState)
+                        .verticalScrollbar(detailScrollState)
+                        .padding(horizontal = 20.dp, vertical = 14.dp),
+                    verticalArrangement = Arrangement.spacedBy(14.dp),
+                ) {
+                    // Plain-English Weather Assessment
+                    Surface(
+                        color = NernalColors.CardInner,
+                        shape = RoundedCornerShape(16.dp),
+                        border = BorderStroke(1.dp, NernalColors.Gold.copy(alpha = 0.45f)),
+                        modifier = Modifier.fillMaxWidth(),
+                    ) {
+                        Column(
+                            modifier = Modifier.padding(14.dp),
+                            verticalArrangement = Arrangement.spacedBy(6.dp),
+                        ) {
+                            Text(
+                                text = "WEATHER ASSESSMENT",
+                                color = NernalColors.Gold,
+                                fontSize = 12.sp,
+                                fontWeight = FontWeight.Bold,
+                                letterSpacing = 0.8.sp,
+                            )
+                            Text(
+                                text = assessment,
+                                color = NernalColors.Ink,
+                                fontSize = 16.sp,
+                                lineHeight = 23.sp,
+                            )
+                        }
+                    }
+
+                    // Active NWS Alerts on Today
+                    if (isToday && activeAlerts.isNotEmpty()) {
+                        for (alert in activeAlerts) {
+                            Surface(
+                                color = NernalColors.Rose.copy(alpha = 0.14f),
+                                shape = RoundedCornerShape(14.dp),
+                                border = BorderStroke(1.dp, NernalColors.Rose.copy(alpha = 0.65f)),
+                                modifier = Modifier.fillMaxWidth(),
+                            ) {
+                                Row(
+                                    modifier = Modifier.padding(12.dp),
+                                    verticalAlignment = Alignment.Top,
+                                    horizontalArrangement = Arrangement.spacedBy(10.dp),
+                                ) {
+                                    Icon(
+                                        imageVector = Icons.Rounded.Warning,
+                                        contentDescription = null,
+                                        tint = NernalColors.Rose,
+                                        modifier = Modifier.size(20.dp),
+                                    )
+                                    Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                                        Text(
+                                            text = alert.event,
+                                            color = NernalColors.Rose,
+                                            fontSize = 14.sp,
+                                            fontWeight = FontWeight.Bold,
+                                        )
+                                        if (alert.headline.isNotBlank()) {
+                                            Text(
+                                                text = alert.headline,
+                                                color = NernalColors.Ink,
+                                                fontSize = 13.sp,
+                                            )
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+
+                    // Key Metrics Grid
+                    val windVal = if (isToday) weather.windMph else (selectedDay.maxWindMph ?: weather.windMph)
+                    val gustVal = if (isToday) weather.windGustsMph else selectedDay.maxWindGustsMph
+                    val windDir = windDirectionCompass(if (isToday) weather.windDirectionDeg else selectedDay.windDirectionDeg)
+                    val uvVal = if (isToday) (selectedDay.uvIndexMax ?: weather.uvIndex) else selectedDay.uvIndexMax
+                    val sunriseText = formatWeatherTimeIso(selectedDay.sunriseIso.ifBlank { if (isToday) weather.sunriseIso else "" })
+                    val sunsetText = formatWeatherTimeIso(selectedDay.sunsetIso.ifBlank { if (isToday) weather.sunsetIso else "" })
+
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(10.dp),
+                    ) {
+                        if (isToday) {
+                            WeatherMetricTile(
+                                label = "CURRENT",
+                                value = "${weather.currentTempF}°F",
+                                subtitle = "Feels like ${weather.apparentTempF}°F",
+                                modifier = Modifier.weight(1f),
+                            )
+                        }
+                        WeatherMetricTile(
+                            label = "HIGH / LOW",
+                            value = "${selectedDay.maxTempF}° / ${selectedDay.minTempF}°",
+                            subtitle = if (selectedDay.apparentMaxTempF != null && selectedDay.apparentMinTempF != null) {
+                                "Feels ${selectedDay.apparentMaxTempF}° / ${selectedDay.apparentMinTempF}°"
+                            } else {
+                                dayConditionDesc
+                            },
+                            modifier = Modifier.weight(1f),
+                        )
+                        WeatherMetricTile(
+                            label = "PRECIPITATION",
+                            value = "${selectedDay.precipChance}%",
+                            subtitle = if (selectedDay.precipSumInches >= 0.01) {
+                                String.format(Locale.US, "%.2f in expected", selectedDay.precipSumInches)
+                            } else {
+                                "Low rainfall chance"
+                            },
+                            modifier = Modifier.weight(1f),
+                        )
+                        WeatherMetricTile(
+                            label = "WIND",
+                            value = "$windVal mph" + if (windDir.isNotEmpty()) " $windDir" else "",
+                            subtitle = gustVal?.let { "Gusts up to $it mph" } ?: "Steady breeze",
+                            modifier = Modifier.weight(1f),
+                        )
+                    }
+
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(10.dp),
+                    ) {
+                        if (isToday) {
+                            WeatherMetricTile(
+                                label = "HUMIDITY & SKY",
+                                value = "${weather.humidityPercent}%",
+                                subtitle = weather.cloudCoverPercent?.let { "Cloud cover $it%" } ?: "Relative humidity",
+                                modifier = Modifier.weight(1f),
+                            )
+                        }
+                        WeatherMetricTile(
+                            label = "UV INDEX",
+                            value = uvVal?.let { String.format(Locale.US, "%.1f", it) } ?: "—",
+                            subtitle = uvVal?.let { uvIndexCategory(it) } ?: "Unavailable",
+                            modifier = Modifier.weight(1f),
+                        )
+                        WeatherMetricTile(
+                            label = "SUNRISE / SUNSET",
+                            value = sunriseText.ifEmpty { "—" },
+                            subtitle = if (sunsetText.isNotEmpty()) "Sunset $sunsetText" else "Daylight",
+                            modifier = Modifier.weight(1f),
+                        )
+                    }
+
+                    // Hourly Outlook
+                    if (dayHourly.isNotEmpty()) {
+                        Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                            Text(
+                                text = "HOURLY OUTLOOK",
+                                color = NernalColors.Gold,
+                                fontSize = 12.sp,
+                                fontWeight = FontWeight.Bold,
+                                letterSpacing = 0.8.sp,
+                            )
+                            Row(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .horizontalScroll(rememberScrollState()),
+                                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                            ) {
+                                for (hour in dayHourly) {
+                                    HourlyForecastChip(hour = hour)
+                                }
+                            }
+                        }
+                    }
+                }
+
+                HorizontalDivider(color = NernalColors.BorderSubtle)
+
+                // Footer Actions
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = 20.dp, vertical = 12.dp),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                        OutlinedButton(
+                            onClick = onOpenRadar,
+                            border = BorderStroke(1.dp, NernalColors.Accent.copy(alpha = 0.6f)),
+                            shape = RoundedCornerShape(12.dp),
+                            modifier = Modifier.height(48.dp),
+                        ) {
+                            Icon(
+                                imageVector = Icons.Rounded.Radar,
+                                contentDescription = null,
+                                tint = NernalColors.Accent,
+                                modifier = Modifier.size(18.dp),
+                            )
+                            Spacer(Modifier.width(6.dp))
+                            Text("Open Radar", color = NernalColors.Accent, fontWeight = FontWeight.Bold, fontSize = 14.sp)
+                        }
+
+                        if (canReadAloud) {
+                            OutlinedButton(
+                                onClick = { onReadAloud(selectedDay) },
+                                border = BorderStroke(1.dp, NernalColors.Border),
+                                shape = RoundedCornerShape(12.dp),
+                                modifier = Modifier.height(48.dp),
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Rounded.VolumeUp,
+                                    contentDescription = null,
+                                    tint = NernalColors.Gold,
+                                    modifier = Modifier.size(18.dp),
+                                )
+                                Spacer(Modifier.width(6.dp))
+                                Text("Read Aloud", color = NernalColors.Gold, fontWeight = FontWeight.SemiBold, fontSize = 14.sp)
+                            }
+                        }
+                    }
+
+                    Button(
+                        onClick = onDismiss,
+                        colors = ButtonDefaults.buttonColors(containerColor = NernalColors.Gold),
+                        shape = RoundedCornerShape(12.dp),
+                        modifier = Modifier.height(48.dp),
+                    ) {
+                        Text("Close", color = NernalColors.Bg, fontWeight = FontWeight.Bold, fontSize = 15.sp)
+                    }
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun WeatherMetricTile(
+    label: String,
+    value: String,
+    subtitle: String,
+    modifier: Modifier = Modifier,
+) {
+    Surface(
+        color = NernalColors.CardInner,
+        shape = RoundedCornerShape(14.dp),
+        border = BorderStroke(1.dp, NernalColors.BorderSubtle),
+        modifier = modifier,
+    ) {
+        Column(
+            modifier = Modifier.padding(horizontal = 12.dp, vertical = 10.dp),
+            verticalArrangement = Arrangement.spacedBy(3.dp),
+        ) {
+            Text(
+                text = label,
+                color = NernalColors.InkMuted,
+                fontSize = 11.sp,
+                fontWeight = FontWeight.Bold,
+                letterSpacing = 0.6.sp,
+                maxLines = 1,
+            )
+            Text(
+                text = value,
+                color = NernalColors.Ink,
+                fontSize = 20.sp,
+                fontWeight = FontWeight.Bold,
+                style = TextStyle(fontFeatureSettings = "tnum"),
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+            )
+            Text(
+                text = subtitle,
+                color = NernalColors.InkMuted,
+                fontSize = 12.sp,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+            )
+        }
+    }
+}
+
+@Composable
+private fun HourlyForecastChip(hour: HourlyForecast) {
+    val isDayHour = hour.hour24 in 6..19
+    val (icon, tint) = weatherIconAndTint(hour.weatherCode, isDay = isDayHour)
+    val hourLabel = when {
+        hour.hour24 == 0 -> "12 AM"
+        hour.hour24 < 12 -> "${hour.hour24} AM"
+        hour.hour24 == 12 -> "12 PM"
+        else -> "${hour.hour24 - 12} PM"
+    }
+    Surface(
+        color = NernalColors.CardInner,
+        shape = RoundedCornerShape(12.dp),
+        border = BorderStroke(1.dp, NernalColors.BorderSubtle),
+        modifier = Modifier.width(82.dp),
+    ) {
+        Column(
+            modifier = Modifier.padding(horizontal = 8.dp, vertical = 8.dp),
+            horizontalAlignment = Alignment.CenterHorizontally,
+            verticalArrangement = Arrangement.spacedBy(4.dp),
+        ) {
+            Text(
+                text = hourLabel,
+                color = NernalColors.InkMuted,
+                fontSize = 12.sp,
+                fontWeight = FontWeight.SemiBold,
+            )
+            Icon(
+                imageVector = icon,
+                contentDescription = null,
+                tint = tint,
+                modifier = Modifier.size(22.dp),
+            )
+            Text(
+                text = "${hour.tempF}°",
+                color = NernalColors.Ink,
+                fontSize = 16.sp,
+                fontWeight = FontWeight.Bold,
+                style = TextStyle(fontFeatureSettings = "tnum"),
+            )
+            Text(
+                text = "${hour.precipChance}% · ${hour.windMph}m",
+                color = if (hour.precipChance >= 30) NernalColors.Accent else NernalColors.InkMuted,
+                fontSize = 11.sp,
+                maxLines = 1,
+            )
         }
     }
 }

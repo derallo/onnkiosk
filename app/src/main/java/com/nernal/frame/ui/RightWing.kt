@@ -673,7 +673,7 @@ private fun EmptyAlbumStateContent(
                     }
 
                     Text(
-                        text = "Don't want photos? Tap 'Hide Photos' in the top bar above, or tap the button below to expand your Calendar and Tasks to full screen.",
+                        text = "Don't want photos? Tap the collapse icon in the bottom-right bar, or tap the button below to expand your Calendar and Tasks to full screen.",
                         color = NernalColors.InkMuted,
                         fontSize = 12.sp,
                         lineHeight = 17.sp,
@@ -901,56 +901,70 @@ private fun PhotoControlBar(
             .background(NernalColors.Card)
             .padding(horizontal = 8.dp),
         verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.SpaceBetween,
     ) {
         // Left: <, Pause/Play, >
         Row(
             verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(2.dp),
+            horizontalArrangement = Arrangement.spacedBy(4.dp),
         ) {
-            IconButton(
+            Surface(
                 onClick = onPrev,
                 enabled = total > 1,
-                modifier = Modifier.size(44.dp),
+                color = NernalColors.CardInner,
+                shape = RoundedCornerShape(12.dp),
+                border = BorderStroke(1.dp, NernalColors.BorderSubtle),
+                modifier = Modifier.size(48.dp),
             ) {
-                Icon(
-                    imageVector = Icons.Rounded.ChevronLeft,
-                    contentDescription = "Previous Photo",
-                    tint = NernalColors.Ink,
-                    modifier = Modifier.size(28.dp),
-                )
+                Box(contentAlignment = Alignment.Center) {
+                    Icon(
+                        imageVector = Icons.Rounded.ChevronLeft,
+                        contentDescription = "Previous Photo",
+                        tint = if (total > 1) NernalColors.Ink else NernalColors.InkMuted.copy(alpha = 0.4f),
+                        modifier = Modifier.size(28.dp),
+                    )
+                }
             }
-            IconButton(
+            Surface(
                 onClick = onToggleAuto,
-                modifier = Modifier.size(42.dp),
+                color = NernalColors.CardInner,
+                shape = RoundedCornerShape(12.dp),
+                border = BorderStroke(1.dp, NernalColors.BorderSubtle),
+                modifier = Modifier.size(48.dp),
             ) {
-                Icon(
-                    imageVector = if (autoAdvance) Icons.Rounded.Pause else Icons.Rounded.PlayArrow,
-                    contentDescription = if (autoAdvance) "Pause Slideshow" else "Play Slideshow",
-                    tint = NernalColors.InkMuted,
-                    modifier = Modifier.size(22.dp),
-                )
+                Box(contentAlignment = Alignment.Center) {
+                    Icon(
+                        imageVector = if (autoAdvance) Icons.Rounded.Pause else Icons.Rounded.PlayArrow,
+                        contentDescription = if (autoAdvance) "Pause Slideshow" else "Play Slideshow",
+                        tint = NernalColors.InkMuted,
+                        modifier = Modifier.size(22.dp),
+                    )
+                }
             }
-            IconButton(
+            Surface(
                 onClick = onNext,
                 enabled = total > 1,
-                modifier = Modifier.size(44.dp),
+                color = NernalColors.CardInner,
+                shape = RoundedCornerShape(12.dp),
+                border = BorderStroke(1.dp, NernalColors.BorderSubtle),
+                modifier = Modifier.size(48.dp),
             ) {
-                Icon(
-                    imageVector = Icons.Rounded.ChevronRight,
-                    contentDescription = "Next Photo",
-                    tint = NernalColors.Ink,
-                    modifier = Modifier.size(28.dp),
-                )
+                Box(contentAlignment = Alignment.Center) {
+                    Icon(
+                        imageVector = Icons.Rounded.ChevronRight,
+                        contentDescription = "Next Photo",
+                        tint = if (total > 1) NernalColors.Ink else NernalColors.InkMuted.copy(alpha = 0.4f),
+                        modifier = Modifier.size(28.dp),
+                    )
+                }
             }
         }
 
-        // Center: Album name · year
+        // Left-aligned right beside '>': Album name · year
         Box(
             modifier = Modifier
                 .weight(1f)
-                .padding(horizontal = 6.dp),
-            contentAlignment = Alignment.Center,
+                .padding(start = 8.dp, end = 8.dp),
+            contentAlignment = Alignment.CenterStart,
         ) {
             val titleLine = buildString {
                 append(photo?.albumTitle ?: "Google Photos")
@@ -966,25 +980,23 @@ private fun PhotoControlBar(
             )
         }
 
-        // Right: [★ Only / ☆ Off], Star, Fullscreen, Hide (collapse icon)
+        // Right: [★ Only / ☆ Off], Star, Fullscreen, Hide (uniform 48dp buttons with generous spacing)
         Row(
             verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(4.dp),
+            horizontalArrangement = Arrangement.spacedBy(10.dp),
         ) {
             Surface(
-                color = if (favoritesOnly) Color(0xFF33260F) else NernalColors.CardSubtle,
-                shape = RoundedCornerShape(10.dp),
+                onClick = onToggleFavoritesFilter,
+                color = if (favoritesOnly) Color(0xFF33260F) else NernalColors.CardInner,
+                shape = RoundedCornerShape(12.dp),
                 border = BorderStroke(
                     width = 1.dp,
-                    color = if (favoritesOnly) NernalColors.Amber else NernalColors.Border,
+                    color = if (favoritesOnly) NernalColors.Amber else NernalColors.BorderSubtle,
                 ),
-                modifier = Modifier
-                    .height(38.dp)
-                    .clip(RoundedCornerShape(10.dp))
-                    .clickable(onClick = onToggleFavoritesFilter),
+                modifier = Modifier.height(48.dp),
             ) {
                 Row(
-                    modifier = Modifier.padding(horizontal = 8.dp),
+                    modifier = Modifier.padding(horizontal = 10.dp),
                     verticalAlignment = Alignment.CenterVertically,
                     horizontalArrangement = Arrangement.spacedBy(4.dp),
                 ) {
@@ -992,7 +1004,7 @@ private fun PhotoControlBar(
                         imageVector = if (favoritesOnly) Icons.Rounded.Star else Icons.Rounded.StarOutline,
                         contentDescription = if (favoritesOnly) "Starred photos only" else "Starred filter off",
                         tint = if (favoritesOnly) NernalColors.Amber else NernalColors.InkMuted,
-                        modifier = Modifier.size(17.dp),
+                        modifier = Modifier.size(18.dp),
                     )
                     Text(
                         text = if (favoritesOnly) "Only" else "Off",
@@ -1003,38 +1015,51 @@ private fun PhotoControlBar(
                 }
             }
 
-            IconButton(
+            Surface(
                 onClick = onToggleStar,
                 enabled = photo != null,
-                modifier = Modifier.size(42.dp),
+                color = if (isStarred) Color(0xFF33260F) else NernalColors.CardInner,
+                shape = RoundedCornerShape(12.dp),
+                border = BorderStroke(
+                    width = 1.dp,
+                    color = if (isStarred) NernalColors.Amber.copy(alpha = 0.75f) else NernalColors.BorderSubtle,
+                ),
+                modifier = Modifier.size(48.dp),
             ) {
-                Icon(
-                    imageVector = if (isStarred) Icons.Rounded.Star else Icons.Rounded.StarOutline,
-                    contentDescription = if (isStarred) "Remove Favorite" else "Favorite Photo",
-                    tint = if (isStarred) NernalColors.Amber else NernalColors.InkMuted,
-                    modifier = Modifier.size(23.dp),
-                )
+                Box(contentAlignment = Alignment.Center) {
+                    Icon(
+                        imageVector = if (isStarred) Icons.Rounded.Star else Icons.Rounded.StarOutline,
+                        contentDescription = if (isStarred) "Remove Favorite" else "Favorite Photo",
+                        tint = if (isStarred) NernalColors.Amber else NernalColors.InkMuted,
+                        modifier = Modifier.size(23.dp),
+                    )
+                }
             }
 
-            IconButton(
+            Surface(
                 onClick = onEnterFullscreen,
-                modifier = Modifier.size(42.dp),
+                color = NernalColors.CardInner,
+                shape = RoundedCornerShape(12.dp),
+                border = BorderStroke(1.dp, NernalColors.BorderSubtle),
+                modifier = Modifier.size(48.dp),
             ) {
-                Icon(
-                    imageVector = Icons.Rounded.Fullscreen,
-                    contentDescription = "Fullscreen Slideshow",
-                    tint = NernalColors.Ink,
-                    modifier = Modifier.size(23.dp),
-                )
+                Box(contentAlignment = Alignment.Center) {
+                    Icon(
+                        imageVector = Icons.Rounded.Fullscreen,
+                        contentDescription = "Fullscreen Slideshow",
+                        tint = NernalColors.Ink,
+                        modifier = Modifier.size(23.dp),
+                    )
+                }
             }
 
             if (onHide != null) {
                 Surface(
                     onClick = onHide,
                     color = NernalColors.CardInner,
-                    shape = RoundedCornerShape(10.dp),
+                    shape = RoundedCornerShape(12.dp),
                     border = BorderStroke(1.dp, NernalColors.BorderSubtle),
-                    modifier = Modifier.size(42.dp),
+                    modifier = Modifier.size(48.dp),
                 ) {
                     Box(contentAlignment = Alignment.Center) {
                         Icon(
@@ -2674,8 +2699,9 @@ fun UserGuideDialog(
                     )
 
                     UserGuideSection(
-                        title = "2. Clock, Weather & Doppler Radar",
-                        content = "• The top card shows time and today's day/date at equal large size with location underneath, current temperature, today's high/low, and upcoming forecast cards. Tap the chevron icon to collapse or expand weather.\n" +
+                        title = "2. Clock, Weather Assessment & Doppler Radar",
+                        content = "• The top card displays a large high-contrast clock and today's day/date with location underneath, current temperature, today's high/low, and upcoming forecast cards. Tap the chevron icon to collapse or expand weather.\n" +
+                            "• Tap the current weather area or any future forecast card to open a detailed Weather Assessment with plain-English conditions, hourly outlook, wind & gusts, UV index, and sunrise/sunset.\n" +
                             "• Active NWS warnings appear as a red warning icon by the date; tap to view details and dismiss individual alerts.\n" +
                             "• Tap the Radar icon right beside the current temperature to open animated pan/zoom Doppler radar."
                     )
@@ -2683,23 +2709,23 @@ fun UserGuideDialog(
                     UserGuideSection(
                         title = "3. Home Hub: Calendar & Tasks",
                         content = "• All Tab: Chronological list of upcoming events and active tasks.\n" +
-                            "• Events Tab: Tap 'Events' to switch between Itinerary, 3-Day, Week, and Month views. In Month view, tap any day to pop out its events and tasks, then tap an event for full details.\n" +
+                            "• Events Tab: Tap 'Events' to switch between Itinerary, 3-Day, Week, and Month views. In Month view, tap any day to pop out its events and tasks, tap '+ Add Task / Event' to add either on that date, or tap an event for full details.\n" +
                             "• Tasks Tab: Focused view for your Google Task lists with checkboxes to mark items done.\n" +
-                            "• Add (+) Button: Tap the '+' button in the top right to quickly add a Task or Event.\n" +
+                            "• Add (+) Button: Tap the '+' button in the top right to quickly add a Task (choosing which Google Task list or setting a Default) or an Event.\n" +
                             "• Filter Dropdown: Filter individual task lists per tab, and use the 5-second Undo bar if you delete an item by mistake."
                     )
 
                     UserGuideSection(
-                        title = "4. Quick-Add (+) Button",
-                        content = "• Tap the '+' button in the top right to open the Add Entry dialog.\n" +
-                            "• Select Task or Event, type the title or description, and tap Add.\n" +
-                            "• Events sync directly to your primary Google Calendar and Tasks sync directly to your active Google Task list."
+                        title = "4. Quick-Add (+) Button & Default Task List",
+                        content = "• Tap the '+' button in the top right (or inside a Month day pop-out) to open the New Entry dialog.\n" +
+                            "• Choose Task or Event. When adding a Task, pick which Google Task list to add to (pre-selected to your Default list, with a quick 'Set as default' toggle or in Settings → Google Account → Task Lists).\n" +
+                            "• Events sync directly to your primary Google Calendar and Tasks sync directly to your chosen Google Task list."
                     )
 
                     UserGuideSection(
                         title = "5. Photo Slideshow, Swiping & Favorites",
                         content = "• Swipe left or right on the photo stage (normal or fullscreen) to browse, or tap a photo to inspect fullscreen for 10 seconds.\n" +
-                            "• At the bottom of the photo card: tap ★ to favorite the current photo, tap [★ Only / ☆ Off] to filter starred photos, tap Fullscreen for dedicated 30-minute viewing, or tap Hide to expand Calendar full-screen (tap [Photos] in the top bar to bring photos back)."
+                            "• At the bottom of the photo card: browse with < / ⏸ / > (album name appears right beside >), tap [★ Only / ☆ Off] to filter starred photos, tap ★ to favorite, tap Fullscreen for 30-minute viewing, or tap the bottom-right collapse icon (▸|) to expand Calendar full-screen (tap the same bottom-right restore icon |◂ to bring photos back)."
                     )
 
                     UserGuideSection(

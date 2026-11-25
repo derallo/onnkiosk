@@ -179,8 +179,10 @@ class NernalRepository(private val cacheDir: File? = null) {
             val tzEncoded = URLEncoder.encode(location.timezone, "UTF-8")
             val url = "https://api.open-meteo.com/v1/forecast" +
                 "?latitude=${location.latitude}&longitude=${location.longitude}" +
-                "&current=temperature_2m,relative_humidity_2m,apparent_temperature,is_day,precipitation,weather_code,wind_speed_10m" +
-                "&daily=weather_code,temperature_2m_max,temperature_2m_min,precipitation_probability_max,sunrise,sunset" +
+                "&current=temperature_2m,relative_humidity_2m,apparent_temperature,is_day,precipitation,weather_code,wind_speed_10m,wind_gusts_10m,wind_direction_10m,cloud_cover,uv_index" +
+                "&daily=weather_code,temperature_2m_max,temperature_2m_min,apparent_temperature_max,apparent_temperature_min,precipitation_probability_max,precipitation_sum,wind_speed_10m_max,wind_gusts_10m_max,wind_direction_10m_dominant,uv_index_max,sunrise,sunset" +
+                "&hourly=temperature_2m,apparent_temperature,precipitation_probability,precipitation,weather_code,wind_speed_10m,relative_humidity_2m" +
+                "&forecast_days=5" +
                 "&temperature_unit=fahrenheit&wind_speed_unit=mph&precipitation_unit=inch" +
                 "&timezone=$tzEncoded"
 
@@ -879,9 +881,15 @@ class NernalRepository(private val cacheDir: File? = null) {
         taskListId: String,
         title: String,
         category: ReminderCategory,
+        dateKey: String? = null,
     ): RemoteMutationResult<ReminderItem> = withContext(Dispatchers.IO) {
         try {
-            val payload = JSONObject().apply { put("title", title) }
+            val payload = JSONObject().apply {
+                put("title", title)
+                if (!dateKey.isNullOrBlank()) {
+                    put("due", "${dateKey}T00:00:00.000Z")
+                }
+            }
             val encId = URLEncoder.encode(taskListId, "UTF-8")
             val req = Request.Builder()
                 .url("https://tasks.googleapis.com/tasks/v1/lists/$encId/tasks")
@@ -1989,7 +1997,14 @@ class NernalRepository(private val cacheDir: File? = null) {
             val codes = dailyObj.getJSONArray("weather_code")
             val maxTemps = dailyObj.getJSONArray("temperature_2m_max")
             val minTemps = dailyObj.getJSONArray("temperature_2m_min")
+            val apparentMaxTemps = dailyObj.optJSONArray("apparent_temperature_max")
+            val apparentMinTemps = dailyObj.optJSONArray("apparent_temperature_min")
             val precipProbs = dailyObj.optJSONArray("precipitation_probability_max")
+            val precipSums = dailyObj.optJSONArray("precipitation_sum")
+            val maxWinds = dailyObj.optJSONArray("wind_speed_10m_max")
+            val maxGusts = dailyObj.optJSONArray("wind_gusts_10m_max")
+            val windDirs = dailyObj.optJSONArray("wind_direction_10m_dominant")
+            val uvMaxes = dailyObj.optJSONArray("uv_index_max")
             val sunrises = dailyObj.optJSONArray("sunrise")
             val sunsets = dailyObj.optJSONArray("sunset")
 
@@ -2004,6 +2019,13 @@ class NernalRepository(private val cacheDir: File? = null) {
                             LocalDate.parse(iso).dayOfWeek.getDisplayName(TextStyle.SHORT, Locale.US)
                         }.getOrDefault(iso.takeLast(5))
                     }
+                    val appMax = apparentMaxTemps?.takeIf { i < it.length() && !it.isNull(i) }?.optDouble(i)?.takeIf { !it.isNaN() }?.roundToInt()
+                    val appMin = apparentMinTemps?.takeIf { i < it.length() && !it.isNull(i) }?.optDouble(i)?.takeIf { !it.isNaN() }?.roundToInt()
+                    val pSum = precipSums?.takeIf { i < it.length() && !it.isNull(i) }?.optDouble(i, 0.0)?.takeIf { !it.isNaN() } ?: 0.0
+                    val maxW = maxWinds?.takeIf { i < it.length() && !it.isNull(i) }?.optDouble(i)?.takeIf { !it.isNaN() }?.roundToInt()
+                    val maxG = maxGusts?.takeIf { i < it.length() && !it.isNull(i) }?.optDouble(i)?.takeIf { !it.isNaN() }?.roundToInt()
+                    val wDir = windDirs?.takeIf { i < it.length() && !it.isNull(i) }?.optDouble(i)?.takeIf { !it.isNaN() }?.roundToInt()
+                    val uvM = uvMaxes?.takeIf { i < it.length() && !it.isNull(i) }?.optDouble(i)?.takeIf { !it.isNaN() }
                     add(
                         DailyForecast(
                             dateIso = iso,
@@ -2012,12 +2034,78 @@ class NernalRepository(private val cacheDir: File? = null) {
                             maxTempF = maxTemps.optDouble(i, 0.0).roundToInt(),
                             minTempF = minTemps.optDouble(i, 0.0).roundToInt(),
                             precipChance = precipProbs?.optInt(i, 0) ?: 0,
+                            apparentMaxTempF = appMax,
+                            apparentMinTempF = appMin,
+                            precipSumInches = pSum,
+                            maxWindMph = maxW,
+                            maxWindGustsMph = maxG,
+                            windDirectionDeg = wDir,
+                            uvIndexMax = uvM,
+                            sunriseIso = sunrises?.optString(i).orEmpty(),
+                            sunsetIso = sunsets?.optString(i).orEmpty(),
                         )
                     )
                 }
             }
 
+            val hourlyObj = root.optJSONObject("hourly")
+            val hourly = if (hourlyObj != null) {
+                val hTimes = hourlyObj.optJSONArray("time")
+                val hTemps = hourlyObj.optJSONArray("temperature_2m")
+                val hApparent = hourlyObj.optJSONArray("apparent_temperature")
+                val hPrecipProb = hourlyObj.optJSONArray("precipitation_probability")
+                val hPrecip = hourlyObj.optJSONArray("precipitation")
+                val hCodes = hourlyObj.optJSONArray("weather_code")
+                val hWinds = hourlyObj.optJSONArray("wind_speed_10m")
+                val hHumidity = hourlyObj.optJSONArray("relative_humidity_2m")
+                val hCount = hTimes?.length() ?: 0
+                buildList(hCount) {
+                    for (i in 0 until hCount) {
+                        val tIso = hTimes?.optString(i).orEmpty()
+                        if (tIso.length < 13) continue
+                        val dIso = tIso.substring(0, 10)
+                        val hr = tIso.substring(11, 13).toIntOrNull() ?: continue
+                        val temp = hTemps?.optDouble(i, 0.0)?.takeIf { !it.isNaN() }?.roundToInt() ?: 0
+                        val appTemp = hApparent?.optDouble(i, temp.toDouble())?.takeIf { !it.isNaN() }?.roundToInt() ?: temp
+                        val pProb = hPrecipProb?.optInt(i, 0) ?: 0
+                        val pIn = hPrecip?.optDouble(i, 0.0)?.takeIf { !it.isNaN() } ?: 0.0
+                        val wCode = hCodes?.optInt(i, 0) ?: 0
+                        val wMph = hWinds?.optDouble(i, 0.0)?.takeIf { !it.isNaN() }?.roundToInt() ?: 0
+                        val hum = hHumidity?.optInt(i, 0) ?: 0
+                        add(
+                            HourlyForecast(
+                                timeIso = tIso,
+                                dateIso = dIso,
+                                hour24 = hr,
+                                weatherCode = wCode,
+                                tempF = temp,
+                                apparentTempF = appTemp,
+                                precipChance = pProb,
+                                precipInches = pIn,
+                                windMph = wMph,
+                                humidityPercent = hum,
+                            )
+                        )
+                    }
+                }
+            } else {
+                emptyList()
+            }
+
             val code = current.optInt("weather_code", 0)
+            val curGusts = if (current.has("wind_gusts_10m") && !current.isNull("wind_gusts_10m")) {
+                current.optDouble("wind_gusts_10m").takeIf { !it.isNaN() }?.roundToInt()
+            } else null
+            val curDir = if (current.has("wind_direction_10m") && !current.isNull("wind_direction_10m")) {
+                current.optDouble("wind_direction_10m").takeIf { !it.isNaN() }?.roundToInt()
+            } else null
+            val curCloud = if (current.has("cloud_cover") && !current.isNull("cloud_cover")) {
+                current.optInt("cloud_cover")
+            } else null
+            val curUv = if (current.has("uv_index") && !current.isNull("uv_index")) {
+                current.optDouble("uv_index").takeIf { !it.isNaN() }
+            } else null
+
             return WeatherData(
                 currentTempF = current.optDouble("temperature_2m", 0.0).roundToInt(),
                 apparentTempF = current.optDouble("apparent_temperature", 0.0).roundToInt(),
@@ -2032,6 +2120,11 @@ class NernalRepository(private val cacheDir: File? = null) {
                 daily = daily,
                 alerts = alerts,
                 fetchedAtMs = System.currentTimeMillis(),
+                windGustsMph = curGusts,
+                windDirectionDeg = curDir,
+                cloudCoverPercent = curCloud,
+                uvIndex = curUv,
+                hourly = hourly,
             )
         }
 

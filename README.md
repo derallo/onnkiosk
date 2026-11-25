@@ -9,10 +9,10 @@ Optimized for **landscape 1280×800** displays (such as the Walmart Onn 8" Table
 ## Features
 
 - **Device-Adaptive Hardware Detection**: Automatically detects camera, microphone, speakers, and on-device speech recognition — exposing voice assistant, audible alerts, and camera motion wake/sleep on capable tablets (such as Fire Tablets running LineageOS) while keeping headless frames clean.
-- **Google Calendar**: Day, 3-Day, Week, and Month views with horizontal swipe navigation, all-day events pinned cleanly at the top, and tappable Month day pop-outs (with `+ Add Event` for that day).
-- **Google Tasks**: Interactive task checklist with completion toggles, due dates, and quick addition.
-- **Google Photos**: Auto-cycling photo slideshow with year filtering, album selection, full-screen mode, top-right `★` favorite badges, and `★ Only / ☆ Off` filtering.
-- **Weather & Doppler Radar**: Top-aligned equal-size clock & date header, current temperature, collapsible 4-day future forecast cards (showing a compact temp badge when collapsed), dismissible NWS weather alerts, and live interactive RainViewer radar tile overlays with timeline scrubbing.
+- **Google Calendar**: Day, 3-Day, Week, and Month views with horizontal swipe navigation, all-day events pinned cleanly at the top, and tappable Month day pop-outs (with `+ Add Task / Event` for that day).
+- **Google Tasks**: Interactive task checklist with completion toggles, due dates, per-list selection when adding tasks, configurable Default task list, and quick addition.
+- **Google Photos**: Auto-cycling photo slideshow with year filtering, album selection, full-screen mode, top-right `★` favorite badges, uniform 48dp control bar with `★ Only / ☆ Off` filtering, and bottom-right hide/restore toggle for full-screen Calendar mode.
+- **Weather & Doppler Radar**: Large top-aligned clock & date header (~75% larger), current temperature, collapsible 4-day future forecast cards (tappable for detailed daily & hourly Weather Assessments), dismissible NWS weather alerts, and live interactive RainViewer radar tile overlays with timeline scrubbing.
 - **Morning Alarm, Dual-Tier Voice Assistant, Night Mode & Camera Wake**:
   - **Morning Alarm & Daily Brief**: Configurable wake time and days of week that automatically exits Night Mode, chimes, and reads your morning weather & schedule brief (at alarm time or when silenced).
   - **Tier 1 (No API Key Required)**: Uses on-device speech recognition & Text-to-Speech for time, weather, morning briefings, calendar/tasks, adding reminders, and screen/photo controls, plus synthesized 4-note chimes and spoken event alerts.

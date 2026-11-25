@@ -72,18 +72,19 @@ Onnkiosk supports connecting your Google account directly using your own OAuth C
 ## 4. Dashboard Features & Daily Operation
 
 ### Left Wing: Informational Telemetry
-- **Clock, Weather & Next Event Header**: Top-aligned high-contrast ambient clock paired with an equal-size Day & Date (`EEE, MMM d`) and flush-left location underneath (no divider bar), real-time temperature, today's high/low/precip, and 4 larger upcoming forecast cards (day abbreviation + weather icon on the same line, no duplicate "Today" card). Tap the chevron icon to collapse weather into a compact `[icon temp° ▾]` badge or expand it again.
+- **Clock, Weather & Next Event Header**: Top-aligned large high-contrast ambient clock & Day/Date (`EEE, MMM d`, scaled ~75% larger) with location underneath, real-time temperature, today's high/low/precip, and 4 larger upcoming forecast cards (day abbreviation + weather icon on the same line, no duplicate "Today" card). Tap the chevron icon to collapse weather into a compact `[icon temp° ▾]` badge or expand it again.
+- **Interactive Weather Assessment**: Tap the current weather area or any future forecast card to open the detailed Weather Assessment modal with a plain-English summary, feels-like temps, precipitation expected, wind/gusts & direction, UV index, sunrise/sunset, hourly outlook, and quick links to **Open Radar** or **Read Aloud**.
 - **Dismissible NWS Weather Alerts**: Active alerts appear as a compact warning icon by the date; tap it to inspect full alert details and dismiss individual alerts.
 - **Doppler Radar Modal**: Tap the Radar icon right beside the current temperature to open the fullscreen interactive RainViewer/NEXRAD radar modal with zoom, pan, play/pause controls, and frame scrubber.
 - **Home Hub (Calendar & Google Tasks)**:
   - Tab selector for **All**, **Events (`Itinerary / 3-Day / Week / Month`) ▾**, and **Tasks** views.
   - Swipe left or right on **3-Day**, **Week**, or **Month** calendars to step backward/forward in time.
   - Multi-day all-day events consolidate cleanly into a single entry with a `Through YYYY-MM-DD` note, and all-day events stay pinned cleanly to the top of day views.
-  - **Month View Day Pop-out**: Tap any day in Month view to pop out a modal list of that day's events and tasks; tap **+ Add Event** to schedule an event directly on that date, or tap any event in the pop-out to open full Event Details.
+  - **Month View Day Pop-out**: Tap any day in Month view to pop out a modal list of that day's events and tasks; tap **+ Add Task / Event** to schedule a Task (to a chosen or default Task list) or Event directly on that date, or tap any event in the pop-out to open full Event Details.
   - Tap any event to inspect location, organizer, attendees, and description.
   - Tap circular checkboxes to mark Google Tasks done (with strikethrough styling and automatic Google sync), filter individual task lists via the filter dropdown, and use the 5-second **Undo** bar after deleting an item.
-  - Tap the **+** button in the top-right to open the **New Entry** dialog and add a **Task** or **Event** directly to your Google account.
-  - **Calendar Primary Mode**: Tap the collapse icon (`>|`) at the far right of the bottom photo bar (or toggle **Make Calendar Primary** in Settings) to expand Calendar & Tasks full-screen while preserving full date/time, weather, and forecast cards (with the same weather collapse toggle); tap **Photos** (`[icon] Photos`) in the top bar to bring the photo carousel back.
+  - Tap the **+** button in the top-right to open the **New Entry** dialog and add a **Task** (picking which Google Task list or setting a Default) or **Event** directly to your Google account. You can also set your **Default** Google Task list under **Settings → Google Account → Task Lists**.
+  - **Calendar Primary Mode**: Tap the bottom-right collapse icon (`▸|`) on the photo bar (or toggle **Make Calendar Primary** in Settings) to expand Calendar & Tasks full-screen while preserving full date/time, weather, and forecast cards (with the same weather collapse toggle); tap the restore icon (`|◂`) in the exact same bottom-right corner to bring the photo carousel back.
 
 ### Right Wing: Lifestyle, Photos & Adaptive Smart Controls
 - **Streamlined Top Utility Bar**: Wider icon-only outlined **Speak** (`🎤`) button on the left of the right column (alongside **Memories** when active, plus **Account** and **Wi-Fi** during initial setup only); on the right edge from right to left: **Settings**, **Night**, and **Eye** (Camera Motion Wake, when a camera is detected). User Guide (`?`), Account, Wi-Fi, and manual Photo Refresh live cleanly inside **Settings** after initial setup.
@@ -103,7 +104,7 @@ Onnkiosk supports connecting your Google account directly using your own OAuth C
 - **Google Photos Ambient Slideshow**:
   - Automatically rotates photos at configurable intervals (`5s`, `10s`, `15s`, `20s`, `30s`, `60s`), with swipe left/right navigation and tap-to-inspect fullscreen for 10 seconds. Starred photos show a subtle top-right `★` badge.
   - **Multi-Year & Album Filters**: Filter photos across specific years or all years in Settings, or filter by album.
-  - **Bottom Control Bar (left to right)**: **Prev (`<`)**, **Pause/Play (`⏸/▶`)**, **Next (`>`)**, center **Album · Year**, **Star filter (`★ Only / ☆ Off`)**, **Favorite (`★`)**, **Fullscreen (`⛶`)**, and **Hide (`>|`)**.
+  - **Bottom Control Bar (left to right)**: Uniform 48dp buttons for **Prev (`<`)**, **Pause/Play (`⏸/▶`)**, **Next (`>`)**, **Album · Year** positioned right beside `>`, spaced-out **Star filter (`★ Only / ☆ Off`)**, **Favorite (`★`)**, **Fullscreen (`⛶`)**, and **Hide (`▸|`)**.
   - **Fullscreen Slideshow Mode**: Tap the fullscreen expansion icon in the bottom photo bar for an edge-to-edge frame view. Remains in fullscreen mode for 30 minutes or until touched/dismissed.
   - **Auto-Detect Album Links**: Add a Google Task containing a `photos.app.goo.gl` link and Onnkiosk imports it into the slideshow automatically and marks the task complete.
 

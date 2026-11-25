@@ -158,7 +158,9 @@ data class NernalUiState(
     val calendarError: String? = null,
     val availableTaskLists: List<GoogleTaskListInfo> = emptyList(),
     val selectedTaskListIds: Set<String> = emptySet(),
+    val defaultTaskListId: String? = null,
     val tasksError: String? = null,
+    val selectedWeatherDayIso: String? = null,
     val customSharedAlbumUrls: List<String> = emptyList(),
     val photosApiError: String? = null,
     val pickerSessionUri: String? = null,
@@ -284,6 +286,7 @@ class NernalViewModel(application: Application) : AndroidViewModel(application) 
                 oauthClientSecret = prefs.loadOAuthClientSecret(),
                 selectedCalendarIds = prefs.loadSelectedCalendarIds(),
                 selectedTaskListIds = selTaskLists,
+                defaultTaskListId = prefs.loadDefaultTaskListId(),
                 activeTaskListFilters = savedActiveTaskListFilters,
                 customSharedAlbumUrls = prefs.loadCustomSharedAlbumUrls(),
                 pendingSyncCount = remOps.size + if (piSyncEnabled) favOps.size else 0,
@@ -848,7 +851,8 @@ class NernalViewModel(application: Application) : AndroidViewModel(application) 
                 if (mins <= 0 || s.isDimmed) continue
                 if (s.voiceState != VoiceAssistantState.IDLE) continue
                 if (s.showSettingsDialog || s.showAccountDialog || s.showHelpDialog ||
-                    s.showFeedbackDialog || s.showRadarModal || s.showPiSyncDialog || s.showMemoryDialog
+                    s.showFeedbackDialog || s.showRadarModal || s.showPiSyncDialog ||
+                    s.showMemoryDialog || s.selectedWeatherDayIso != null
                 ) continue
                 val elapsedMs = System.currentTimeMillis() - lastUserActivityMs
                 if (elapsedMs >= mins * 60_000L) {
@@ -1344,6 +1348,7 @@ class NernalViewModel(application: Application) : AndroidViewModel(application) 
                 calendarError = null,
                 availableTaskLists = emptyList(),
                 selectedTaskListIds = emptySet(),
+                defaultTaskListId = null,
                 tasksError = null,
                 photosApiError = null,
                 pickerSessionUri = null,
@@ -1506,10 +1511,17 @@ class NernalViewModel(application: Application) : AndroidViewModel(application) 
                     prefs.saveSelectedTaskListIds(selLists)
                 }
             }
+            var defaultList = _uiState.value.defaultTaskListId
+                ?: withContext(Dispatchers.IO) { prefs.loadDefaultTaskListId() }
+            if (lists.isNotEmpty() && (defaultList == null || lists.none { it.id == defaultList })) {
+                defaultList = lists.firstOrNull { it.id in selLists }?.id ?: lists.first().id
+                withContext(Dispatchers.IO) { prefs.saveDefaultTaskListId(defaultList) }
+            }
             _uiState.update {
                 it.copy(
                     availableTaskLists = lists,
                     selectedTaskListIds = selLists,
+                    defaultTaskListId = defaultList,
                     tasksError = null,
                 )
             }
@@ -1647,6 +1659,32 @@ class NernalViewModel(application: Application) : AndroidViewModel(application) 
         prefs.saveSelectedTaskListIds(next)
         _uiState.update { it.copy(selectedTaskListIds = next) }
         viewModelScope.launch { syncGoogleData(includePhotos = false) }
+    }
+
+    fun setDefaultTaskList(listId: String) {
+        if (listId.isBlank()) return
+        prefs.saveDefaultTaskListId(listId)
+        val cur = _uiState.value
+        val needsSync = listId !in cur.selectedTaskListIds
+        val nextSelected = if (needsSync) cur.selectedTaskListIds + listId else cur.selectedTaskListIds
+        if (needsSync) {
+            prefs.saveSelectedTaskListIds(nextSelected)
+        }
+        val nextActiveFilters = if (cur.activeTaskListFilters.isNotEmpty() && listId !in cur.activeTaskListFilters) {
+            (cur.activeTaskListFilters + listId).also { prefs.saveActiveTaskListFilters(it) }
+        } else {
+            cur.activeTaskListFilters
+        }
+        _uiState.update {
+            it.copy(
+                defaultTaskListId = listId,
+                selectedTaskListIds = nextSelected,
+                activeTaskListFilters = nextActiveFilters,
+            )
+        }
+        if (needsSync && _uiState.value.authState == GoogleAuthState.SIGNED_IN) {
+            viewModelScope.launch { syncGoogleData(includePhotos = false) }
+        }
     }
 
     fun createGoogleTaskList(title: String) {
@@ -1861,7 +1899,8 @@ class NernalViewModel(application: Application) : AndroidViewModel(application) 
                 val state = _uiState.value
                 val paused = !state.autoAdvance || state.isDimmed || state.showRadarModal ||
                     state.showAccountDialog || state.showSettingsDialog || state.showPiSyncDialog ||
-                    state.showMemoryDialog || state.showInAppAuthWebView || state.activePhotos.size <= 1
+                    state.showMemoryDialog || state.showInAppAuthWebView || state.selectedWeatherDayIso != null ||
+                    state.activePhotos.size <= 1
                 if (paused) {
                     delay(2_500L)
                     continue
@@ -1874,7 +1913,8 @@ class NernalViewModel(application: Application) : AndroidViewModel(application) 
                 val latest = _uiState.value
                 val stillActive = latest.autoAdvance && !latest.isDimmed && !latest.showRadarModal &&
                     !latest.showAccountDialog && !latest.showSettingsDialog && !latest.showPiSyncDialog &&
-                    !latest.showMemoryDialog && !latest.showInAppAuthWebView && latest.activePhotos.size > 1
+                    !latest.showMemoryDialog && !latest.showInAppAuthWebView && latest.selectedWeatherDayIso == null &&
+                    latest.activePhotos.size > 1
                 if (stillActive && System.currentTimeMillis() - lastManualNavMs >= targetMs) {
                     stepPhoto(delta = 1, manual = false)
                 }
@@ -2359,6 +2399,11 @@ class NernalViewModel(application: Application) : AndroidViewModel(application) 
         _uiState.update { it.copy(showRadarModal = false) }
     }
 
+    fun setSelectedWeatherDay(dateIso: String?) {
+        if (dateIso != null) touchUserActivity()
+        _uiState.update { it.copy(selectedWeatherDayIso = dateIso) }
+    }
+
     fun refreshRadar() {
         viewModelScope.launch {
             _uiState.update { it.copy(radarLoading = true) }
@@ -2488,7 +2533,10 @@ class NernalViewModel(application: Application) : AndroidViewModel(application) 
         _uiState.update { it.copy(showUpdateDialog = false) }
     }
 
-    private fun resolveTargetSourceId(category: ReminderCategory): String? {
+    private fun resolveTargetSourceId(
+        category: ReminderCategory,
+        explicitSourceId: String? = null,
+    ): String? {
         val state = _uiState.value
         return when (category) {
             ReminderCategory.EVENT -> {
@@ -2501,7 +2549,10 @@ class NernalViewModel(application: Application) : AndroidViewModel(application) 
                     ?: state.availableCalendars.firstOrNull { it.isWritable }?.id
             }
             ReminderCategory.TASK -> {
-                state.selectedTaskListIds.firstOrNull()
+                explicitSourceId?.takeIf { it.isNotBlank() }
+                    ?: state.defaultTaskListId?.takeIf { id -> state.availableTaskLists.any { it.id == id } }
+                    ?: state.availableTaskLists.firstOrNull { it.id in state.selectedTaskListIds }?.id
+                    ?: state.selectedTaskListIds.firstOrNull()
                     ?: state.availableTaskLists.firstOrNull()?.id
             }
         }
@@ -2512,12 +2563,13 @@ class NernalViewModel(application: Application) : AndroidViewModel(application) 
         category: ReminderCategory,
         explicitDateKey: String? = null,
         explicitTime: String? = null,
+        explicitSourceId: String? = null,
     ) {
         val cleaned = text.trim()
         if (cleaned.isEmpty()) return
         val today = _uiState.value.todayKey
         val googleTargetId = if (_uiState.value.authState == GoogleAuthState.SIGNED_IN) {
-            resolveTargetSourceId(category)
+            resolveTargetSourceId(category, explicitSourceId)
         } else null
         val useGoogle = googleTargetId != null
         val usePi = !useGoogle && _uiState.value.piSyncEnabled
@@ -2539,7 +2591,17 @@ class NernalViewModel(application: Application) : AndroidViewModel(application) 
         _uiState.update { state ->
             val updated = sortReminders(listOf(newItem) + state.reminders)
             snapshotReminders = updated
-            state.copy(reminders = updated)
+            val nextActiveTaskFilters = if (
+                category == ReminderCategory.TASK &&
+                googleTargetId != null &&
+                state.activeTaskListFilters.isNotEmpty() &&
+                googleTargetId !in state.activeTaskListFilters
+            ) {
+                (state.activeTaskListFilters + googleTargetId).also { prefs.saveActiveTaskListFilters(it) }
+            } else {
+                state.activeTaskListFilters
+            }
+            state.copy(reminders = updated, activeTaskListFilters = nextActiveTaskFilters)
         }
         checkUpcomingEventReminders()
 
@@ -2783,7 +2845,7 @@ class NernalViewModel(application: Application) : AndroidViewModel(application) 
                         val res = if (op.category == ReminderCategory.EVENT) {
                             repo.createCalendarEvent(accessToken, targetSource, op.text, op.dateKey, zone)
                         } else {
-                            repo.createTask(accessToken, targetSource, op.text, op.category)
+                            repo.createTask(accessToken, targetSource, op.text, op.category, op.dateKey)
                         }
                     ) {
                         is RemoteMutationResult.Success -> {

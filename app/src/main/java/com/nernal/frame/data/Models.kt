@@ -14,6 +14,19 @@ enum class WeatherConditionKind {
     STORM,
 }
 
+data class HourlyForecast(
+    val timeIso: String,
+    val dateIso: String,
+    val hour24: Int,
+    val weatherCode: Int,
+    val tempF: Int,
+    val apparentTempF: Int,
+    val precipChance: Int,
+    val precipInches: Double,
+    val windMph: Int,
+    val humidityPercent: Int,
+)
+
 data class DailyForecast(
     val dateIso: String,
     val dayLabel: String,
@@ -21,6 +34,15 @@ data class DailyForecast(
     val maxTempF: Int,
     val minTempF: Int,
     val precipChance: Int,
+    val apparentMaxTempF: Int? = null,
+    val apparentMinTempF: Int? = null,
+    val precipSumInches: Double = 0.0,
+    val maxWindMph: Int? = null,
+    val maxWindGustsMph: Int? = null,
+    val windDirectionDeg: Int? = null,
+    val uvIndexMax: Double? = null,
+    val sunriseIso: String = "",
+    val sunsetIso: String = "",
 )
 
 data class WeatherAlert(
@@ -81,6 +103,11 @@ data class WeatherData(
     val daily: List<DailyForecast>,
     val alerts: List<WeatherAlert>,
     val fetchedAtMs: Long,
+    val windGustsMph: Int? = null,
+    val windDirectionDeg: Int? = null,
+    val cloudCoverPercent: Int? = null,
+    val uvIndex: Double? = null,
+    val hourly: List<HourlyForecast> = emptyList(),
 )
 
 data class RadarFrame(
@@ -433,4 +460,99 @@ fun wmoKind(code: Int): WeatherConditionKind = when (code) {
     in 71..77, 85, 86 -> WeatherConditionKind.SNOW
     in 95..99 -> WeatherConditionKind.STORM
     else -> WeatherConditionKind.PARTLY_CLOUDY
+}
+
+fun windDirectionCompass(degrees: Int?): String {
+    if (degrees == null) return ""
+    val dirs = arrayOf("N", "NE", "E", "SE", "S", "SW", "W", "NW")
+    val norm = ((degrees % 360) + 360) % 360
+    return dirs[((norm + 22) / 45) % 8]
+}
+
+fun uvIndexCategory(uv: Double): String = when {
+    uv < 3.0 -> "Low"
+    uv < 6.0 -> "Moderate"
+    uv < 8.0 -> "High"
+    uv < 11.0 -> "Very High"
+    else -> "Extreme"
+}
+
+fun formatWeatherTimeIso(iso: String): String {
+    val clean = iso.trim()
+    if (clean.isEmpty()) return ""
+    return runCatching {
+        val timePart = clean.substringAfter('T', clean).take(5)
+        val parts = timePart.split(":")
+        val hour24 = parts[0].toInt()
+        val minute = parts[1].toInt()
+        val amPm = if (hour24 < 12) "AM" else "PM"
+        val hour12 = when {
+            hour24 == 0 -> 12
+            hour24 > 12 -> hour24 - 12
+            else -> hour24
+        }
+        "$hour12:${minute.toString().padStart(2, '0')} $amPm"
+    }.getOrDefault(clean)
+}
+
+fun buildWeatherAssessment(
+    weather: WeatherData,
+    day: DailyForecast,
+    isToday: Boolean,
+): String {
+    val conditionDesc = if (isToday) weather.description else wmoDescription(day.weatherCode)
+    val sb = StringBuilder()
+    if (isToday) {
+        sb.append("Currently ${weather.currentTempF}°F (${conditionDesc.lowercase(java.util.Locale.US)}), feeling like ${weather.apparentTempF}°F. ")
+        sb.append("Today's forecast reaches a high of ${day.maxTempF}°F with a low of ${day.minTempF}°F. ")
+    } else {
+        val dayName = runCatching {
+            java.time.LocalDate.parse(day.dateIso).dayOfWeek
+                .getDisplayName(java.time.format.TextStyle.FULL, java.util.Locale.US)
+        }.getOrDefault(day.dayLabel)
+        sb.append("$dayName looks ${conditionDesc.lowercase(java.util.Locale.US)} with a high of ${day.maxTempF}°F and a low of ${day.minTempF}°F")
+        if (day.apparentMaxTempF != null && kotlin.math.abs(day.apparentMaxTempF - day.maxTempF) >= 3) {
+            sb.append(" (feeling near ${day.apparentMaxTempF}°F)")
+        }
+        sb.append(". ")
+    }
+
+    val rainText = when {
+        day.precipChance >= 60 -> "Rain is likely (${day.precipChance}% chance" +
+            (if (day.precipSumInches >= 0.05) ", around ${String.format(java.util.Locale.US, "%.2f", day.precipSumInches)} in expected" else "") +
+            "). "
+        day.precipChance >= 25 -> "There is a ${day.precipChance}% chance of precipitation" +
+            (if (day.precipSumInches >= 0.05) " (${String.format(java.util.Locale.US, "%.2f", day.precipSumInches)} in)" else "") +
+            ". "
+        else -> "Precipitation looks unlikely (${day.precipChance}% chance). "
+    }
+    sb.append(rainText)
+
+    val windVal = if (isToday) weather.windMph else (day.maxWindMph ?: weather.windMph)
+    val gustVal = if (isToday) weather.windGustsMph else day.maxWindGustsMph
+    val dirText = windDirectionCompass(if (isToday) weather.windDirectionDeg else day.windDirectionDeg)
+    if (windVal >= 15 || (gustVal != null && gustVal >= 25)) {
+        sb.append("Winds ${if (dirText.isNotEmpty()) "from the $dirText " else ""}around $windVal mph")
+        if (gustVal != null && gustVal > windVal + 4) {
+            sb.append(" with gusts up to $gustVal mph")
+        }
+        sb.append(". ")
+    }
+
+    val callouts = mutableListOf<String>()
+    val uvVal = if (isToday) (day.uvIndexMax ?: weather.uvIndex) else day.uvIndexMax
+    if (uvVal != null && uvVal >= 6.0) {
+        callouts.add("high UV (${uvIndexCategory(uvVal).lowercase(java.util.Locale.US)})")
+    }
+    if (day.minTempF <= 32) {
+        callouts.add("freezing overnight lows (${day.minTempF}°F)")
+    }
+    if (day.precipChance >= 50) {
+        callouts.add("keep an umbrella handy")
+    }
+    if (callouts.isNotEmpty()) {
+        sb.append("Heads up: ${callouts.joinToString(", ")}.")
+    }
+
+    return sb.toString().trim()
 }
