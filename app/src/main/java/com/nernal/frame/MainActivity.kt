@@ -621,6 +621,10 @@ private fun NernalFrameRoot(
                     val notesPart = eventItem.notes?.takeIf { it.isNotBlank() }?.let { ". $it" }.orEmpty()
                     viewModel.speakAloud("${eventItem.text}$datePart$timePart$notesPart")
                 },
+                onDelete = {
+                    viewModel.deleteReminder(eventItem.id)
+                    viewModel.setSelectedEventDetail(null)
+                },
                 onDismiss = { viewModel.setSelectedEventDetail(null) },
             )
         }
@@ -789,7 +793,7 @@ private fun NernalFrameRoot(
                 time = state.clockTime,
                 amPm = state.clockAmPm,
                 label = state.alarmConfig.label,
-                speakBriefOnDismiss = state.alarmConfig.speakBriefTiming == AlarmBriefTiming.ON_DISMISS,
+                speakBriefOnDismiss = state.capabilities.hasAudioOutput && state.alarmConfig.speakBriefTiming == AlarmBriefTiming.ON_DISMISS,
                 onSnooze = { viewModel.snoozeActiveAlarm(5) },
                 onDismiss = viewModel::dismissActiveAlarm,
             )

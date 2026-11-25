@@ -760,4 +760,36 @@ class NernalParserTest {
         )
         assertTrue(allPresent.hasVoiceInputAndOutput)
     }
+
+    @Test
+    fun parseLocationQueryHandlesUsZipsAndCommaOptionalStates() {
+        val zip5 = NernalRepository.parseLocationQuery("23117")
+        assertEquals("23117", zip5.searchName)
+        assertEquals("US", zip5.countryCode)
+        assertNull(zip5.stateNameFilter)
+
+        val zip9 = NernalRepository.parseLocationQuery(" 23117-1234 ")
+        assertEquals("23117", zip9.searchName)
+        assertEquals("US", zip9.countryCode)
+
+        val noComma = NernalRepository.parseLocationQuery("Mineral VA")
+        assertEquals("Mineral", noComma.searchName)
+        assertEquals("US", noComma.countryCode)
+        assertEquals("Virginia", noComma.stateNameFilter)
+
+        val withComma = NernalRepository.parseLocationQuery("Mineral, VA")
+        assertEquals("Mineral", withComma.searchName)
+        assertEquals("US", withComma.countryCode)
+        assertEquals("Virginia", withComma.stateNameFilter)
+
+        val austin = NernalRepository.parseLocationQuery("Austin tx")
+        assertEquals("Austin", austin.searchName)
+        assertEquals("US", austin.countryCode)
+        assertEquals("Texas", austin.stateNameFilter)
+
+        val intl = NernalRepository.parseLocationQuery("London")
+        assertEquals("London", intl.searchName)
+        assertNull(intl.countryCode)
+        assertNull(intl.stateNameFilter)
+    }
 }

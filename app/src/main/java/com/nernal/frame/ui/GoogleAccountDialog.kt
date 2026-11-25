@@ -27,6 +27,8 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.text.KeyboardActions
+import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.AccountCircle
@@ -70,7 +72,10 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalClipboardManager
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalFocusManager
+import androidx.compose.ui.platform.LocalSoftwareKeyboardController
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -1076,6 +1081,14 @@ private fun LocationTabContent(
             }
         }
 
+        val keyboardController = LocalSoftwareKeyboardController.current
+        val focusManager = LocalFocusManager.current
+        fun triggerSearch() {
+            keyboardController?.hide()
+            focusManager.clearFocus()
+            onSearchLocations(query)
+        }
+
         Row(
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.spacedBy(8.dp),
@@ -1083,13 +1096,21 @@ private fun LocationTabContent(
             OutlinedTextField(
                 value = query,
                 onValueChange = { query = it },
-                placeholder = { Text("Search city or postal code (e.g., Austin, TX)") },
+                placeholder = { Text("City, State or ZIP (e.g., Austin TX or 23117)") },
                 singleLine = true,
+                keyboardOptions = KeyboardOptions(imeAction = ImeAction.Search),
+                keyboardActions = KeyboardActions(
+                    onSearch = {
+                        if (query.trim().length >= 2 && !state.locationSearching) {
+                            triggerSearch()
+                        }
+                    },
+                ),
                 colors = oauthTextFieldColors(),
                 modifier = Modifier.weight(1f),
             )
             Button(
-                onClick = { onSearchLocations(query) },
+                onClick = ::triggerSearch,
                 enabled = query.trim().length >= 2 && !state.locationSearching,
                 colors = ButtonDefaults.buttonColors(containerColor = NernalColors.Gold),
                 modifier = Modifier.height(50.dp),
@@ -1111,7 +1132,11 @@ private fun LocationTabContent(
                 border = BorderStroke(1.dp, NernalColors.BorderSubtle),
                 modifier = Modifier
                     .fillMaxWidth()
-                    .clickable { onSelectLocation(loc) },
+                    .clickable {
+                        keyboardController?.hide()
+                        focusManager.clearFocus()
+                        onSelectLocation(loc)
+                    },
             ) {
                 Row(
                     modifier = Modifier

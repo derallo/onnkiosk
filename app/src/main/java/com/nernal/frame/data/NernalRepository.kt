@@ -136,40 +136,56 @@ class NernalRepository(private val cacheDir: File? = null) {
     suspend fun searchLocations(query: String): List<UserLocation> = withContext(Dispatchers.IO) {
         val trimmed = query.trim()
         if (trimmed.length < 2) return@withContext emptyList()
+        val parsed = parseLocationQuery(trimmed)
         runCatching {
-            val encoded = URLEncoder.encode(trimmed, "UTF-8")
-            val req = Request.Builder()
-                .url("https://geocoding-api.open-meteo.com/v1/search?name=$encoded&count=5&language=en&format=json")
-                .header("User-Agent", USER_AGENT_BROWSER)
-                .build()
-            val body = httpClient.newCall(req).execute().use { resp ->
-                if (!resp.isSuccessful) return@use null
-                resp.body?.string()
-            } ?: return@runCatching emptyList()
-            val results = JSONObject(body).optJSONArray("results") ?: return@runCatching emptyList()
-            buildList {
-                for (i in 0 until results.length()) {
-                    val o = results.optJSONObject(i) ?: continue
-                    val city = o.optString("name")
-                    val admin1 = o.optString("admin1")
-                    val country = o.optString("country_code")
-                    val suffix = if (country.equals("US", ignoreCase = true) && admin1.isNotBlank()) {
-                        admin1
-                    } else {
-                        listOf(admin1, country).filter { it.isNotBlank() }.joinToString(", ")
-                    }
-                    val display = listOf(city, suffix).filter { it.isNotBlank() }.joinToString(", ")
-                        .uppercase(Locale.US)
-                    add(
-                        UserLocation(
-                            name = display.ifBlank { trimmed.uppercase(Locale.US) },
-                            latitude = o.getDouble("latitude"),
-                            longitude = o.getDouble("longitude"),
-                            timezone = o.optString("timezone", "America/New_York").ifBlank { "America/New_York" },
+            fun fetchResults(countryCode: String?): List<Pair<String, UserLocation>> {
+                val encoded = URLEncoder.encode(parsed.searchName, "UTF-8")
+                val ccParam = if (!countryCode.isNullOrBlank()) "&countryCode=$countryCode" else ""
+                val req = Request.Builder()
+                    .url("https://geocoding-api.open-meteo.com/v1/search?name=$encoded&count=10&language=en&format=json$ccParam")
+                    .header("User-Agent", USER_AGENT_BROWSER)
+                    .build()
+                val body = httpClient.newCall(req).execute().use { resp ->
+                    if (!resp.isSuccessful) return@use null
+                    resp.body?.string()
+                } ?: return emptyList()
+                val results = JSONObject(body).optJSONArray("results") ?: return emptyList()
+                return buildList {
+                    for (i in 0 until results.length()) {
+                        val o = results.optJSONObject(i) ?: continue
+                        val city = o.optString("name")
+                        val admin1 = o.optString("admin1")
+                        val country = o.optString("country_code")
+                        val suffix = if (country.equals("US", ignoreCase = true) && admin1.isNotBlank()) {
+                            admin1
+                        } else {
+                            listOf(admin1, country).filter { it.isNotBlank() }.joinToString(", ")
+                        }
+                        val display = listOf(city, suffix).filter { it.isNotBlank() }.joinToString(", ")
+                            .uppercase(Locale.US)
+                        add(
+                            admin1 to UserLocation(
+                                name = display.ifBlank { trimmed.uppercase(Locale.US) },
+                                latitude = o.getDouble("latitude"),
+                                longitude = o.getDouble("longitude"),
+                                timezone = o.optString("timezone", "America/New_York").ifBlank { "America/New_York" },
+                            )
                         )
-                    )
+                    }
                 }
             }
+
+            var raw = fetchResults(parsed.countryCode)
+            if (raw.isEmpty() && parsed.countryCode != null) {
+                raw = fetchResults(null)
+            }
+            val filtered = if (!parsed.stateNameFilter.isNullOrBlank()) {
+                raw.filter { (admin1, _) -> admin1.equals(parsed.stateNameFilter, ignoreCase = true) }
+                    .ifEmpty { raw }
+            } else {
+                raw
+            }
+            filtered.map { it.second }.take(6)
         }.getOrDefault(emptyList())
     }
 
@@ -2138,6 +2154,50 @@ class NernalRepository(private val cacheDir: File? = null) {
                 }
             }
             return inSampleSize.coerceAtLeast(1)
+        }
+
+        data class ParsedLocationQuery(
+            val searchName: String,
+            val countryCode: String? = null,
+            val stateNameFilter: String? = null,
+        )
+
+        private val US_ZIP_REGEX = Regex("""^(\d{5})(?:-\d{4})?$""")
+        private val CITY_STATE_ABBREV_REGEX = Regex("""^(.+?)[,\s]+([A-Za-z]{2})$""")
+
+        val US_STATE_ABBREV_TO_NAME: Map<String, String> = mapOf(
+            "AL" to "Alabama", "AK" to "Alaska", "AZ" to "Arizona", "AR" to "Arkansas",
+            "CA" to "California", "CO" to "Colorado", "CT" to "Connecticut", "DE" to "Delaware",
+            "DC" to "District of Columbia", "FL" to "Florida", "GA" to "Georgia", "HI" to "Hawaii",
+            "ID" to "Idaho", "IL" to "Illinois", "IN" to "Indiana", "IA" to "Iowa",
+            "KS" to "Kansas", "KY" to "Kentucky", "LA" to "Louisiana", "ME" to "Maine",
+            "MD" to "Maryland", "MA" to "Massachusetts", "MI" to "Michigan", "MN" to "Minnesota",
+            "MS" to "Mississippi", "MO" to "Missouri", "MT" to "Montana", "NE" to "Nebraska",
+            "NV" to "Nevada", "NH" to "New Hampshire", "NJ" to "New Jersey", "NM" to "New Mexico",
+            "NY" to "New York", "NC" to "North Carolina", "ND" to "North Dakota", "OH" to "Ohio",
+            "OK" to "Oklahoma", "OR" to "Oregon", "PA" to "Pennsylvania", "RI" to "Rhode Island",
+            "SC" to "South Carolina", "SD" to "South Dakota", "TN" to "Tennessee", "TX" to "Texas",
+            "UT" to "Utah", "VT" to "Vermont", "VA" to "Virginia", "WA" to "Washington",
+            "WV" to "West Virginia", "WI" to "Wisconsin", "WY" to "Wyoming",
+        )
+
+        fun parseLocationQuery(raw: String): ParsedLocationQuery {
+            val trimmed = raw.trim()
+            US_ZIP_REGEX.matchEntire(trimmed)?.let { m ->
+                return ParsedLocationQuery(searchName = m.groupValues[1], countryCode = "US")
+            }
+            CITY_STATE_ABBREV_REGEX.matchEntire(trimmed)?.let { m ->
+                val stateName = US_STATE_ABBREV_TO_NAME[m.groupValues[2].uppercase(Locale.US)]
+                val cityPart = m.groupValues[1].trim().trimEnd(',').trim()
+                if (stateName != null && cityPart.isNotEmpty()) {
+                    return ParsedLocationQuery(
+                        searchName = cityPart,
+                        countryCode = "US",
+                        stateNameFilter = stateName,
+                    )
+                }
+            }
+            return ParsedLocationQuery(searchName = trimmed)
         }
     }
 }

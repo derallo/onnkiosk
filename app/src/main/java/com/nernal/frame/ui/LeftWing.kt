@@ -302,7 +302,7 @@ private fun UnifiedHeaderCard(
                     overflow = TextOverflow.Ellipsis,
                     modifier = Modifier.weight(1f),
                 )
-                if (activeAlerts.isNotEmpty() || weatherCollapsed) {
+                if (weatherCollapsed) {
                     Row(
                         verticalAlignment = Alignment.CenterVertically,
                         horizontalArrangement = Arrangement.spacedBy(6.dp),
@@ -310,26 +310,27 @@ private fun UnifiedHeaderCard(
                         if (activeAlerts.isNotEmpty()) {
                             WeatherAlertIconButton(
                                 alertCount = activeAlerts.size,
+                                compact = true,
                                 onClick = { showAlertsDialog = true },
                             )
                         }
-                        if (weatherCollapsed) {
-                            WeatherCollapseButton(
-                                collapsed = true,
-                                weather = weather,
-                                onClick = onToggleWeatherCollapsed,
-                            )
-                        }
+                        WeatherCollapseButton(
+                            collapsed = true,
+                            weather = weather,
+                            onClick = onToggleWeatherCollapsed,
+                        )
                     }
                 }
             }
 
-            // Collapsible weather block (big current weather + Radar + Collapse icon + future forecast cards)
+            // Collapsible weather block (big current weather + Alerts + Radar + Collapse icon + future forecast cards)
             if (!weatherCollapsed) {
                 CurrentWeatherWithRadarRow(
                     weather = weather,
                     weatherLoading = weatherLoading,
                     weatherError = weatherError,
+                    activeAlertCount = activeAlerts.size,
+                    onOpenAlerts = { showAlertsDialog = true },
                     onOpenWeatherDetail = onWeatherDayClick,
                     onOpenRadar = onOpenRadar,
                     onCollapseWeather = onToggleWeatherCollapsed,
@@ -637,14 +638,15 @@ private fun WeatherCollapseButton(
 @Composable
 private fun WeatherAlertIconButton(
     alertCount: Int,
+    compact: Boolean = false,
     onClick: () -> Unit,
 ) {
     Surface(
         onClick = onClick,
         color = NernalColors.Rose.copy(alpha = 0.2f),
-        shape = RoundedCornerShape(10.dp),
+        shape = RoundedCornerShape(if (compact) 10.dp else 12.dp),
         border = BorderStroke(1.dp, NernalColors.Rose.copy(alpha = 0.7f)),
-        modifier = Modifier.size(44.dp),
+        modifier = if (compact) Modifier.size(44.dp) else Modifier.size(width = 44.dp, height = 48.dp),
     ) {
         Box(contentAlignment = Alignment.Center) {
             Icon(
@@ -662,6 +664,8 @@ private fun CurrentWeatherWithRadarRow(
     weather: WeatherData?,
     weatherLoading: Boolean,
     weatherError: String?,
+    activeAlertCount: Int = 0,
+    onOpenAlerts: (() -> Unit)? = null,
     onOpenWeatherDetail: (String) -> Unit,
     onOpenRadar: () -> Unit,
     onCollapseWeather: (() -> Unit)? = null,
@@ -706,32 +710,19 @@ private fun CurrentWeatherWithRadarRow(
                         verticalArrangement = Arrangement.spacedBy(2.dp),
                         modifier = Modifier.weight(1f, fill = false),
                     ) {
-                        Row(
-                            verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.spacedBy(8.dp),
-                        ) {
-                            Text(
-                                text = weather.description,
-                                color = NernalColors.Gold,
-                                fontSize = 17.sp,
-                                fontWeight = FontWeight.Bold,
-                                maxLines = 1,
-                                overflow = TextOverflow.Ellipsis,
-                            )
-                            if (todayDaily != null) {
-                                Text(
-                                    text = "H:${todayDaily.maxTempF}° L:${todayDaily.minTempF}° · ${todayDaily.precipChance}%",
-                                    color = NernalColors.Ink,
-                                    fontSize = 14.sp,
-                                    fontWeight = FontWeight.SemiBold,
-                                    maxLines = 1,
-                                )
-                            }
-                        }
                         Text(
-                            text = "Feels ${weather.apparentTempF}° · ${weather.humidityPercent}% · ${weather.windMph} mph",
+                            text = weather.description,
+                            color = NernalColors.Gold,
+                            fontSize = 20.sp,
+                            fontWeight = FontWeight.Bold,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis,
+                        )
+                        Text(
+                            text = "Feels ${weather.apparentTempF}° · ${weather.windMph} mph",
                             color = NernalColors.InkMuted,
-                            fontSize = 13.sp,
+                            fontSize = 15.sp,
+                            fontWeight = FontWeight.Medium,
                             maxLines = 1,
                             overflow = TextOverflow.Ellipsis,
                         )
@@ -751,11 +742,18 @@ private fun CurrentWeatherWithRadarRow(
             }
         }
 
-        // Radar icon-only button right beside the big weather, with Collapse to its right
+        // Alerts (if any), Radar, and Collapse buttons right beside the big weather
         Row(
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.spacedBy(6.dp),
         ) {
+            if (activeAlertCount > 0 && onOpenAlerts != null) {
+                WeatherAlertIconButton(
+                    alertCount = activeAlertCount,
+                    onClick = onOpenAlerts,
+                )
+            }
+
             Surface(
                 onClick = onOpenRadar,
                 color = NernalColors.CardInner,
@@ -1548,17 +1546,14 @@ private fun ReminderRow(
         border = BorderStroke(1.dp, NernalColors.BorderSubtle),
         modifier = Modifier
             .fillMaxWidth()
-            .clickable {
-                if (isEvent) onEventClick()
-                else onToggle()
-            },
+            .clickable(onClick = onEventClick),
     ) {
         Row(
             modifier = Modifier
                 .fillMaxWidth()
-                .padding(horizontal = 4.dp, vertical = 2.dp),
+                .padding(start = 4.dp, end = 10.dp, top = 2.dp, bottom = 2.dp),
             verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(4.dp),
+            horizontalArrangement = Arrangement.spacedBy(6.dp),
         ) {
             // Leading target: Calendar event icon or 48dp checkbox touch area
             Box(
@@ -1642,19 +1637,6 @@ private fun ReminderRow(
                     fontSize = 14.sp,
                     fontWeight = FontWeight.Bold,
                     modifier = Modifier.padding(horizontal = 8.dp, vertical = 3.dp),
-                )
-            }
-
-            // Delete action
-            IconButton(
-                onClick = onDelete,
-                modifier = Modifier.size(48.dp),
-            ) {
-                Icon(
-                    imageVector = Icons.Rounded.DeleteOutline,
-                    contentDescription = "Delete item",
-                    tint = NernalColors.InkMuted,
-                    modifier = Modifier.size(18.dp),
                 )
             }
         }
@@ -1765,8 +1747,10 @@ fun EventDetailsDialog(
     availableCalendars: List<GoogleCalendarInfo> = emptyList(),
     canReadAloud: Boolean = false,
     onReadAloud: (() -> Unit)? = null,
+    onDelete: (() -> Unit)? = null,
     onDismiss: () -> Unit,
 ) {
+    val isEvent = item.category == ReminderCategory.EVENT
     val friendlyCalendar = remember(item.sourceId, availableCalendars) {
         if (item.sourceId.isNullOrBlank()) null
         else availableCalendars.find { it.id == item.sourceId }?.summary ?: item.sourceId
@@ -1783,9 +1767,9 @@ fun EventDetailsDialog(
                 horizontalArrangement = Arrangement.spacedBy(10.dp),
             ) {
                 Icon(
-                    imageVector = Icons.Rounded.Event,
+                    imageVector = if (isEvent) Icons.Rounded.Event else Icons.Rounded.Checklist,
                     contentDescription = null,
-                    tint = NernalColors.Accent,
+                    tint = if (isEvent) NernalColors.Accent else NernalColors.Amber,
                     modifier = Modifier.size(28.dp),
                 )
                 Text(
@@ -1820,7 +1804,7 @@ fun EventDetailsDialog(
                         text = buildString {
                             if (!item.time.isNullOrBlank()) append("${item.time} · ")
                             if (!item.dateKey.isNullOrBlank()) append(formatSectionDate(item.dateKey))
-                        }.ifBlank { "All Day Event" },
+                        }.ifBlank { if (isEvent) "All Day Event" else "Task" },
                         color = NernalColors.Ink,
                         fontSize = 18.sp,
                         fontWeight = FontWeight.Bold,
@@ -1839,7 +1823,7 @@ fun EventDetailsDialog(
                             modifier = Modifier.size(18.dp),
                         )
                         Text(
-                            text = "Calendar: $friendlyCalendar",
+                            text = "${if (isEvent) "Calendar" else "List"}: $friendlyCalendar",
                             color = NernalColors.InkMuted,
                             fontSize = 15.sp,
                             fontWeight = FontWeight.Medium,
@@ -1873,33 +1857,60 @@ fun EventDetailsDialog(
                 }
             }
         },
-        dismissButton = if (canReadAloud && onReadAloud != null) {
-            {
-                OutlinedButton(
-                    onClick = onReadAloud,
-                    border = BorderStroke(1.dp, NernalColors.Border),
-                    shape = RoundedCornerShape(12.dp),
-                    modifier = Modifier.height(48.dp),
-                ) {
-                    Icon(
-                        imageVector = Icons.Rounded.VolumeUp,
-                        contentDescription = null,
-                        tint = NernalColors.Gold,
-                        modifier = Modifier.size(18.dp),
-                    )
-                    Spacer(Modifier.width(6.dp))
-                    Text("Read Aloud", color = NernalColors.Gold, fontWeight = FontWeight.SemiBold, fontSize = 14.sp)
-                }
-            }
-        } else null,
+        dismissButton = null,
         confirmButton = {
-            Button(
-                onClick = onDismiss,
-                colors = ButtonDefaults.buttonColors(containerColor = NernalColors.Gold),
-                shape = RoundedCornerShape(12.dp),
-                modifier = Modifier.height(48.dp),
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically,
             ) {
-                Text("Close", color = NernalColors.Bg, fontWeight = FontWeight.Bold, fontSize = 15.sp)
+                if (onDelete != null) {
+                    OutlinedButton(
+                        onClick = onDelete,
+                        border = BorderStroke(1.dp, NernalColors.Rose.copy(alpha = 0.65f)),
+                        shape = RoundedCornerShape(12.dp),
+                        modifier = Modifier.height(48.dp),
+                    ) {
+                        Icon(
+                            imageVector = Icons.Rounded.DeleteOutline,
+                            contentDescription = "Delete",
+                            tint = NernalColors.Rose,
+                            modifier = Modifier.size(18.dp),
+                        )
+                        Spacer(Modifier.width(6.dp))
+                        Text("Delete", color = NernalColors.Rose, fontWeight = FontWeight.SemiBold, fontSize = 14.sp)
+                    }
+                } else {
+                    Spacer(Modifier.width(1.dp))
+                }
+
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    if (canReadAloud && onReadAloud != null) {
+                        OutlinedButton(
+                            onClick = onReadAloud,
+                            border = BorderStroke(1.dp, NernalColors.Border),
+                            shape = RoundedCornerShape(12.dp),
+                            modifier = Modifier.height(48.dp),
+                        ) {
+                            Icon(
+                                imageVector = Icons.Rounded.VolumeUp,
+                                contentDescription = null,
+                                tint = NernalColors.Gold,
+                                modifier = Modifier.size(18.dp),
+                            )
+                            Spacer(Modifier.width(6.dp))
+                            Text("Read Aloud", color = NernalColors.Gold, fontWeight = FontWeight.SemiBold, fontSize = 14.sp)
+                        }
+                    }
+                    Button(
+                        onClick = onDismiss,
+                        colors = ButtonDefaults.buttonColors(containerColor = NernalColors.Gold),
+                        shape = RoundedCornerShape(12.dp),
+                        modifier = Modifier.height(48.dp),
+                    ) {
+                        Text("Close", color = NernalColors.Bg, fontWeight = FontWeight.Bold, fontSize = 15.sp)
+                    }
+                }
             }
         },
     )
@@ -3798,7 +3809,7 @@ fun FullWidthTopHeaderCard(
                     overflow = TextOverflow.Ellipsis,
                     modifier = Modifier.weight(1f),
                 )
-                if (activeAlerts.isNotEmpty() || state.weatherCollapsed) {
+                if (state.weatherCollapsed) {
                     Row(
                         verticalAlignment = Alignment.CenterVertically,
                         horizontalArrangement = Arrangement.spacedBy(6.dp),
@@ -3806,21 +3817,20 @@ fun FullWidthTopHeaderCard(
                         if (activeAlerts.isNotEmpty()) {
                             WeatherAlertIconButton(
                                 alertCount = activeAlerts.size,
+                                compact = true,
                                 onClick = { showAlertsDialog = true },
                             )
                         }
-                        if (state.weatherCollapsed) {
-                            WeatherCollapseButton(
-                                collapsed = true,
-                                weather = state.weather,
-                                onClick = onToggleWeatherCollapsed,
-                            )
-                        }
+                        WeatherCollapseButton(
+                            collapsed = true,
+                            weather = state.weather,
+                            onClick = onToggleWeatherCollapsed,
+                        )
                     }
                 }
             }
 
-            // ROW 3 (Collapsible): Full current weather + Radar + Collapse icon + 4-day future forecast cards
+            // ROW 3 (Collapsible): Full current weather + Alerts + Radar + Collapse icon + 4-day future forecast cards
             if (!state.weatherCollapsed) {
                 HorizontalDivider(color = NernalColors.BorderSubtle)
                 if (isPortrait) {
@@ -3828,6 +3838,8 @@ fun FullWidthTopHeaderCard(
                         weather = state.weather,
                         weatherLoading = state.weatherLoading,
                         weatherError = state.weatherError,
+                        activeAlertCount = activeAlerts.size,
+                        onOpenAlerts = { showAlertsDialog = true },
                         onOpenWeatherDetail = onWeatherDayClick,
                         onOpenRadar = onOpenRadar,
                         onCollapseWeather = onToggleWeatherCollapsed,
@@ -3848,6 +3860,8 @@ fun FullWidthTopHeaderCard(
                             weather = state.weather,
                             weatherLoading = state.weatherLoading,
                             weatherError = state.weatherError,
+                            activeAlertCount = activeAlerts.size,
+                            onOpenAlerts = { showAlertsDialog = true },
                             onOpenWeatherDetail = onWeatherDayClick,
                             onOpenRadar = onOpenRadar,
                             onCollapseWeather = onToggleWeatherCollapsed,

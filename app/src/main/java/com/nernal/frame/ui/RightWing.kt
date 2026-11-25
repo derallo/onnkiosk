@@ -2177,14 +2177,16 @@ fun SettingsDialog(
                     }
                 }
 
-                HorizontalDivider(color = NernalColors.BorderSubtle)
+                if (state.capabilities.hasAudioOutput) {
+                    HorizontalDivider(color = NernalColors.BorderSubtle)
 
-                // Morning Alarm & Daily Brief
-                MorningAlarmSettingsSection(
-                    alarmConfig = state.alarmConfig,
-                    onUpdateAlarmConfig = onUpdateAlarmConfig,
-                    onTestAlarm = onTestAlarm,
-                )
+                    // Morning Alarm & Daily Brief
+                    MorningAlarmSettingsSection(
+                        alarmConfig = state.alarmConfig,
+                        onUpdateAlarmConfig = onUpdateAlarmConfig,
+                        onTestAlarm = onTestAlarm,
+                    )
+                }
 
                 HorizontalDivider(color = NernalColors.BorderSubtle)
 
