@@ -126,6 +126,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
+import com.nernal.frame.BuildConfig
 import com.nernal.frame.NernalUiState
 import com.nernal.frame.data.CalendarViewMode
 import com.nernal.frame.data.DailyForecast
@@ -3591,7 +3592,7 @@ private fun TopUtilityActionButtons(
         }
     }
 
-    if (state.piSyncEnabled) {
+    if (BuildConfig.IS_NERNAL_FAMILY_BUILD && state.piSyncEnabled) {
         val (piDotColor, piLabel) = when {
             state.pendingSyncCount > 0 -> NernalColors.Amber to "Queue (${state.pendingSyncCount})"
             state.piConnection == PiConnectionState.CONNECTED -> NernalColors.Emerald to "Pi Linked"

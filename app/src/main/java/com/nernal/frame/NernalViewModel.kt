@@ -3,6 +3,7 @@ package com.nernal.frame
 import android.app.Application
 import android.content.Intent
 import android.graphics.Bitmap
+import android.provider.Settings
 import android.util.Log
 import androidx.core.net.toUri
 import androidx.lifecycle.AndroidViewModel
@@ -143,6 +144,7 @@ data class NernalUiState(
     val showMemoryDialog: Boolean = false,
     val needsAudioPermissionPrompt: Boolean = false,
     val needsCameraPermissionPrompt: Boolean = false,
+    val showOverlayPermissionPrompt: Boolean = false,
     // Google OAuth & Sources
     val showAccountDialog: Boolean = false,
     val authState: GoogleAuthState = GoogleAuthState.NOT_SIGNED_IN,
@@ -296,6 +298,7 @@ class NernalViewModel(application: Application) : AndroidViewModel(application) 
                 calendarViewMode = prefs.loadCalendarViewMode(),
                 calendarPrimaryMode = prefs.loadCalendarPrimaryMode(),
                 lastAddCategory = prefs.loadLastAddCategory(),
+                showOverlayPermissionPrompt = !Settings.canDrawOverlays(application) && !prefs.hasPromptedOverlayPermission(),
                 hubFilter = if (prefs.loadCalendarPrimaryMode()) HubFilter.EVENTS else HubFilter.ALL,
             )
         }
@@ -417,6 +420,11 @@ class NernalViewModel(application: Application) : AndroidViewModel(application) 
 
     fun clearPermissionPrompts() {
         _uiState.update { it.copy(needsAudioPermissionPrompt = false, needsCameraPermissionPrompt = false) }
+    }
+
+    fun dismissOverlayPermissionPrompt() {
+        prefs.setPromptedOverlayPermission(true)
+        _uiState.update { it.copy(showOverlayPermissionPrompt = false) }
     }
 
     fun setCameraMotionWakeEnabled(enabled: Boolean) {

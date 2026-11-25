@@ -18,7 +18,6 @@ Optimized for **landscape 1280×800** displays (such as the Walmart Onn 8" Table
   - **Tier 1 (No API Key Required)**: Uses on-device speech recognition & Text-to-Speech for time, weather, morning briefings, calendar/tasks, adding reminders, and screen/photo controls, plus synthesized 4-note chimes and spoken event alerts.
   - **Tier 2 ("Super Onnkiosk" with Gemini API Key)**: Enter your own Gemini API key in Settings — directly, via scannable QR code / local Wi-Fi from your phone/PC, or by picking a key from Google Tasks — to unlock natural conversational AI, live camera vision (*"What am I holding?"*, *"Read this"*), and a voice-managed **Memory Book** for recipes and notes.
   - **Night Mode & Camera Motion Wake**: Manual Night Mode stays dim until explicitly turned off (or woken by Morning Alarm); idle Auto-Sleep wakes hands-free via the front camera when someone approaches.
-- **Optional Nernal Raspberry Pi Sync**: Toggleable Pi LAN sync for households connecting to a Nernal Raspberry Pi hub.
 - **Self-Updating**: In-app update notifications via GitHub Releases with direct download and install.
 - **Privacy & Security**: Connects directly to Google APIs (and Gemini when configured) using your own credentials. No intermediary servers, no third-party tracking.
 
@@ -43,7 +42,7 @@ Onnkiosk is **100% functional with no AI key**. If you choose to add an optional
 
 - **Natural Conversational AI**: Ask open-ended questions, recipes, conversions, or follow-ups with multi-turn listening.
 - **Live Camera Vision** *(on tablets with a front camera)*: Hold up an object, label, or recipe card and ask *"What am I holding?"* or *"Read this"*.
-- **Voice-Managed Memory Book**: Tell Onnkiosk to remember family recipes, birthdays, doctor numbers, or household notes — browseable and readable aloud anytime via the **Memories** button (and optionally synced two-way with a Nernal Raspberry Pi hub on your Wi-Fi).
+- **Voice-Managed Memory Book**: Tell Onnkiosk to remember family recipes, birthdays, doctor numbers, or household notes — browseable and readable aloud anytime via the **Memories** button.
 
 ---
 

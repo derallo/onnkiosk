@@ -123,6 +123,7 @@ import com.nernal.frame.data.PiConnectionState
 import com.nernal.frame.data.ReminderItem
 import com.nernal.frame.data.VoiceAssistantState
 import com.nernal.frame.data.WeatherData
+import com.nernal.frame.hardware.ReturnToAppOverlay
 import kotlinx.coroutines.delay
 
 fun openDeviceWifiSettings(context: Context) {
@@ -138,6 +139,7 @@ fun openDeviceHomeSettings(context: Context) {
 }
 
 fun exitAppToHome(context: Context) {
+    ReturnToAppOverlay.hide()
     val homeIntent = Intent(Intent.ACTION_MAIN).apply {
         addCategory(Intent.CATEGORY_HOME)
         flags = Intent.FLAG_ACTIVITY_NEW_TASK
@@ -159,6 +161,7 @@ private fun openDeviceSystemSettings(
     primaryAction: String,
     fallbackAction: String,
 ) {
+    ReturnToAppOverlay.show(context)
     val launchedPrimary = runCatching {
         context.startActivity(
             Intent(primaryAction).apply { flags = Intent.FLAG_ACTIVITY_NEW_TASK },
@@ -272,7 +275,7 @@ fun LifestyleWing(
                     }
                 }
 
-                if (state.piSyncEnabled) {
+                if (BuildConfig.IS_NERNAL_FAMILY_BUILD && state.piSyncEnabled) {
                     val (piDotColor, piLabel) = when {
                         state.pendingSyncCount > 0 -> NernalColors.Amber to "Queue (${state.pendingSyncCount})"
                         state.piConnection == PiConnectionState.CONNECTED -> NernalColors.Emerald to "Pi Linked"
@@ -2188,59 +2191,61 @@ fun SettingsDialog(
                     )
                 }
 
-                HorizontalDivider(color = NernalColors.BorderSubtle)
+                if (BuildConfig.IS_NERNAL_FAMILY_BUILD) {
+                    HorizontalDivider(color = NernalColors.BorderSubtle)
 
-                // Optional Nernal Raspberry Pi Home Hub Sync
-                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.SpaceBetween,
-                    ) {
-                        Column(
-                            modifier = Modifier
-                                .weight(1f)
-                                .padding(end = 12.dp),
-                            verticalArrangement = Arrangement.spacedBy(2.dp),
+                    // Optional Nernal Raspberry Pi Home Hub Sync
+                    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.SpaceBetween,
                         ) {
-                            Text(
-                                text = "Nernal Raspberry Pi Sync (Optional)",
-                                color = NernalColors.Ink,
-                                fontSize = 14.sp,
-                                fontWeight = FontWeight.SemiBold,
-                            )
-                            Text(
-                                text = "Sync reminders, Memory Book, and ★ favorites with a Nernal Pi server on your Wi-Fi",
-                                color = NernalColors.InkMuted,
-                                fontSize = 12.sp,
+                            Column(
+                                modifier = Modifier
+                                    .weight(1f)
+                                    .padding(end = 12.dp),
+                                verticalArrangement = Arrangement.spacedBy(2.dp),
+                            ) {
+                                Text(
+                                    text = "Nernal Raspberry Pi Sync (Optional)",
+                                    color = NernalColors.Ink,
+                                    fontSize = 14.sp,
+                                    fontWeight = FontWeight.SemiBold,
+                                )
+                                Text(
+                                    text = "Sync reminders, Memory Book, and ★ favorites with a Nernal Pi server on your Wi-Fi",
+                                    color = NernalColors.InkMuted,
+                                    fontSize = 12.sp,
+                                )
+                            }
+                            Switch(
+                                checked = state.piSyncEnabled,
+                                onCheckedChange = onPiSyncEnabledChange,
+                                colors = SwitchDefaults.colors(
+                                    checkedThumbColor = NernalColors.Bg,
+                                    checkedTrackColor = NernalColors.Emerald,
+                                    uncheckedThumbColor = NernalColors.InkMuted,
+                                    uncheckedTrackColor = NernalColors.CardSubtle,
+                                ),
                             )
                         }
-                        Switch(
-                            checked = state.piSyncEnabled,
-                            onCheckedChange = onPiSyncEnabledChange,
-                            colors = SwitchDefaults.colors(
-                                checkedThumbColor = NernalColors.Bg,
-                                checkedTrackColor = NernalColors.Emerald,
-                                uncheckedThumbColor = NernalColors.InkMuted,
-                                uncheckedTrackColor = NernalColors.CardSubtle,
-                            ),
-                        )
-                    }
-                    if (state.piSyncEnabled) {
-                        OutlinedButton(
-                            onClick = onOpenPiSync,
-                            border = BorderStroke(1.dp, NernalColors.Emerald.copy(alpha = 0.6f)),
-                            shape = RoundedCornerShape(10.dp),
-                            modifier = Modifier.height(44.dp),
-                        ) {
-                            Icon(
-                                imageVector = Icons.Rounded.Refresh,
-                                contentDescription = null,
-                                tint = NernalColors.Emerald,
-                                modifier = Modifier.size(18.dp),
-                            )
-                            Spacer(Modifier.width(8.dp))
-                            Text("Configure Pi Sync (${state.piBaseUrl})", color = NernalColors.Emerald, fontSize = 13.sp, fontWeight = FontWeight.SemiBold)
+                        if (state.piSyncEnabled) {
+                            OutlinedButton(
+                                onClick = onOpenPiSync,
+                                border = BorderStroke(1.dp, NernalColors.Emerald.copy(alpha = 0.6f)),
+                                shape = RoundedCornerShape(10.dp),
+                                modifier = Modifier.height(44.dp),
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Rounded.Refresh,
+                                    contentDescription = null,
+                                    tint = NernalColors.Emerald,
+                                    modifier = Modifier.size(18.dp),
+                                )
+                                Spacer(Modifier.width(8.dp))
+                                Text("Configure Pi Sync (${state.piBaseUrl})", color = NernalColors.Emerald, fontSize = 13.sp, fontWeight = FontWeight.SemiBold)
+                            }
                         }
                     }
                 }
@@ -2899,7 +2904,7 @@ fun UserGuideDialog(
                         title = "1. Overview & Device-Adaptive Features",
                         content = "${BuildConfig.APP_DISPLAY_NAME} automatically detects your device's hardware and unlocks matching capabilities:\n" +
                             "• Left Wing: Live clock, local weather, NWS severe weather alerts, Doppler radar, and Home Hub (calendar & tasks).\n" +
-                            "• Right Wing: High-resolution photo slideshow, favorite memories, and adaptive controls (Speak, Camera Wake, Memory Book, Pi Sync)."
+                            "• Right Wing: High-resolution photo slideshow, favorite memories, and adaptive controls (Speak, Camera Wake, Memory Book${if (BuildConfig.IS_NERNAL_FAMILY_BUILD) ", Pi Sync" else ""})."
                     )
 
                     UserGuideSection(

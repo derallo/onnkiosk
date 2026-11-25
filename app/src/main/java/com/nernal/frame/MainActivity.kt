@@ -1,9 +1,12 @@
 package com.nernal.frame
 
 import android.Manifest
+import android.content.Intent
 import android.content.pm.PackageManager
 import android.os.Bundle
+import android.provider.Settings
 import android.view.WindowManager
+import androidx.core.net.toUri
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
@@ -35,12 +38,14 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.Alarm
 import androidx.compose.material.icons.rounded.Event
 import androidx.compose.material.icons.rounded.Undo
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Icon
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -67,6 +72,7 @@ import com.nernal.frame.data.VoiceAssistantState
 import com.nernal.frame.data.buildWeatherAssessment
 import com.nernal.frame.data.parseTimeLabelToMinutes
 import com.nernal.frame.data.selectNextUpcomingEvent
+import com.nernal.frame.hardware.ReturnToAppOverlay
 import com.nernal.frame.ui.CalendarPrimaryWing
 import com.nernal.frame.ui.DimOverlay
 import com.nernal.frame.ui.DopplerRadarModal
@@ -124,12 +130,18 @@ class MainActivity : ComponentActivity() {
 
     override fun onResume() {
         super.onResume()
+        ReturnToAppOverlay.hide()
         viewModel.onForegroundChanged(true)
     }
 
     override fun onPause() {
         super.onPause()
         viewModel.onForegroundChanged(false)
+    }
+
+    override fun onDestroy() {
+        ReturnToAppOverlay.hide()
+        super.onDestroy()
     }
 
     override fun onUserInteraction() {
@@ -527,7 +539,7 @@ private fun NernalFrameRoot(
             )
         }
 
-        if (state.showPiSyncDialog) {
+        if (BuildConfig.IS_NERNAL_FAMILY_BUILD && state.showPiSyncDialog) {
             PiSyncDialog(
                 state = state,
                 onSyncNow = viewModel::syncWithPiNow,
@@ -755,6 +767,59 @@ private fun NernalFrameRoot(
                 state = state,
                 onSubmit = viewModel::submitUserFeedback,
                 onDismiss = { viewModel.setShowFeedbackDialog(false) },
+            )
+        }
+
+        if (state.showOverlayPermissionPrompt && !Settings.canDrawOverlays(context)) {
+            AlertDialog(
+                onDismissRequest = viewModel::dismissOverlayPermissionPrompt,
+                containerColor = NernalColors.Card,
+                titleContentColor = NernalColors.Ink,
+                textContentColor = NernalColors.InkMuted,
+                shape = RoundedCornerShape(18.dp),
+                title = {
+                    Text(
+                        text = "Allow Return to App Button",
+                        color = NernalColors.Ink,
+                        fontSize = 20.sp,
+                        fontWeight = FontWeight.Bold,
+                    )
+                },
+                text = {
+                    Text(
+                        text = "Grant \"Display over other apps\" so Onnkiosk can show a floating Return to App button whenever you open Android Settings.",
+                        fontSize = 15.sp,
+                    )
+                },
+                confirmButton = {
+                    Button(
+                        onClick = {
+                            viewModel.dismissOverlayPermissionPrompt()
+                            val pkgIntent = Intent(
+                                Settings.ACTION_MANAGE_OVERLAY_PERMISSION,
+                                "package:${context.packageName}".toUri(),
+                            ).apply { flags = Intent.FLAG_ACTIVITY_NEW_TASK }
+                            val fallback = Intent(Settings.ACTION_MANAGE_OVERLAY_PERMISSION).apply {
+                                flags = Intent.FLAG_ACTIVITY_NEW_TASK
+                            }
+                            runCatching { context.startActivity(pkgIntent) }
+                                .onFailure { runCatching { context.startActivity(fallback) } }
+                        },
+                        colors = ButtonDefaults.buttonColors(containerColor = NernalColors.Gold),
+                        shape = RoundedCornerShape(10.dp),
+                        modifier = Modifier.height(48.dp),
+                    ) {
+                        Text("Grant Permission", color = NernalColors.Bg, fontWeight = FontWeight.Bold, fontSize = 15.sp)
+                    }
+                },
+                dismissButton = {
+                    TextButton(
+                        onClick = viewModel::dismissOverlayPermissionPrompt,
+                        modifier = Modifier.height(48.dp),
+                    ) {
+                        Text("Not Now", color = NernalColors.InkMuted, fontSize = 15.sp)
+                    }
+                },
             )
         }
 

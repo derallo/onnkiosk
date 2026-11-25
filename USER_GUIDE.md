@@ -104,8 +104,7 @@ When held or mounted vertically (`height > width`), Onnkiosk automatically reorg
   - Tap the **Eye** icon in the top bar (or toggle in Settings) to enable/disable hands-free wake when movement is detected in front of the tablet after **Auto-Sleep After Inactivity** (`Off`, `5m`, `10m`, `15m`, `30m`).
 - **Audible Event Alerts & Read Aloud (hidden on devices without speakers)**:
   - When speakers are detected, upcoming events (1–5 minutes before start) play a gentle 4-note chime and speak the event aloud (toggleable in Settings, with a **Test Chime & Voice** button), and Event Details, Weather Assessment, Quick Answers, and Memory Book entries provide a **Read Aloud** button.
-- **Memory Book (`Memories` book button)**: Browse saved local recipes, family notes, and synced Nernal Pi notebooks, with category filtering and Read Aloud.
-- **Optional Nernal Raspberry Pi Sync**: Enable in **Settings → Nernal Raspberry Pi Sync** to sync reminders, Memory Book entries, and `★` photo favorites with a Nernal Raspberry Pi hub on your local Wi-Fi.
+- **Memory Book (`Memories` book button)**: Browse saved local recipes and family notes, with category filtering and Read Aloud.
 - **Google Photos Ambient Slideshow**:
   - Automatically rotates photos at configurable intervals (`5s`, `10s`, `15s`, `20s`, `30s`, `60s`), with swipe left/right navigation and tap-to-inspect fullscreen for 10 seconds. Starred photos show a subtle top-right `★` badge.
   - **Multi-Year & Album Filters**: Filter photos across specific years or all years in Settings, or filter by album.
@@ -124,7 +123,7 @@ When held or mounted vertically (`height > width`), Onnkiosk automatically reorg
   - **Checking Submissions (Maintainers)**: Run `gh issue list --repo derallo/onnkiosk-feedback` or `gh api /repos/derallo/onnkiosk-feedback/contents/feedback`.
 - **Automatic GitHub Release Checks**: Onnkiosk checks the GitHub repository (`derallo/onnkiosk`) for new releases periodically in the background.
 - **Update Modal**: When a newer release is published, an update chip appears. Tap **Update** to review changelog release notes, download the APK, and trigger the Android package installer directly.
-- **Log Inspection, Android Settings & Exiting to Home**: Tap **Settings** → **Diagnostics** to view token refresh status, memory usage, and background sync health. Tap **Android Settings** inside **Settings** to open the tablet's system & developer options, or tap the top-right power (**Exit**) button to close Onnkiosk and return to the Android Home launcher.
+- **Log Inspection, Android Settings & Exiting to Home**: Tap **Settings** → **Diagnostics** to view token refresh status, memory usage, and background sync health. Tap **Android Settings** (or **Device Wi-Fi Settings**) inside **Settings** to open the tablet's system screens — when overlay permission (`SYSTEM_ALERT_WINDOW`) is granted, a draggable floating **Return to App** button stays visible so you can return to Onnkiosk anytime — or tap the top-right power (**Exit**) button to close Onnkiosk to the Android Home launcher.
 
 ---
 

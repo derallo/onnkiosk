@@ -60,6 +60,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
+import com.nernal.frame.BuildConfig
 import com.nernal.frame.NernalUiState
 import com.nernal.frame.data.MemoryEntry
 import com.nernal.frame.data.PiConnectionState
@@ -432,7 +433,8 @@ fun MemoryBookDialog(
                                     fontWeight = FontWeight.SemiBold,
                                 )
                                 Text(
-                                    text = "Enter a Gemini API key in Settings and tell the assistant things to remember — like family recipes, birthdays, doctor numbers, or household notes — or link to a Nernal Raspberry Pi.",
+                                    text = "Enter a Gemini API key in Settings and tell the assistant things to remember — like family recipes, birthdays, doctor numbers, or household notes" +
+                                        if (BuildConfig.IS_NERNAL_FAMILY_BUILD) " — or link to a Nernal Raspberry Pi." else ".",
                                     color = NernalColors.InkMuted,
                                     fontSize = 13.sp,
                                     lineHeight = 19.sp,
