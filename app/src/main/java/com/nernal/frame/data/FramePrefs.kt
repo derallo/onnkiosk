@@ -641,6 +641,13 @@ class FramePrefs(context: Context) {
         prefs.edit { putString(KEY_CALENDAR_VIEW_MODE, mode.name) }
     }
 
+    fun loadShowTasks(): Boolean =
+        prefs.getBoolean(KEY_SHOW_TASKS, true)
+
+    fun saveShowTasks(show: Boolean) {
+        prefs.edit { putBoolean(KEY_SHOW_TASKS, show) }
+    }
+
     fun loadCalendarPrimaryMode(): Boolean =
         prefs.getBoolean(KEY_CALENDAR_PRIMARY_MODE, false)
 
@@ -762,6 +769,7 @@ class FramePrefs(context: Context) {
         private const val KEY_GLOBAL_BRIGHTNESS = "global_brightness_v1"
         private const val KEY_WAKE_ON_EVENT_REMINDER = "wake_on_event_reminder_v1"
         private const val KEY_CALENDAR_VIEW_MODE = "calendar_view_mode_v1"
+        private const val KEY_SHOW_TASKS = "hub_show_tasks_v1"
         private const val KEY_CALENDAR_PRIMARY_MODE = "calendar_primary_mode_v1"
         private const val KEY_LAST_ADD_CATEGORY = "last_add_category_v1"
         private const val KEY_OVERLAY_PERMISSION_PROMPTED = "overlay_permission_prompted_v1"

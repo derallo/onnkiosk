@@ -24,7 +24,6 @@ import com.nernal.frame.data.GoogleAuthManager
 import com.nernal.frame.data.GoogleAuthState
 import com.nernal.frame.data.GoogleCalendarInfo
 import com.nernal.frame.data.GoogleTaskListInfo
-import com.nernal.frame.data.HubFilter
 import com.nernal.frame.data.MemoryEntry
 import com.nernal.frame.data.NernalRepository
 import com.nernal.frame.data.OnDeviceVoiceEngine
@@ -86,7 +85,7 @@ data class NernalUiState(
     val weatherCollapsed: Boolean = false,
     val dismissedAlertKeys: Set<String> = emptySet(),
     val reminders: List<ReminderItem> = emptyList(),
-    val hubFilter: HubFilter = HubFilter.ALL,
+    val showTasks: Boolean = true,
     val allPhotos: List<AlbumPhoto> = emptyList(),
     val libraryTotalCount: Int = 0,
     val starredIds: Set<String> = emptySet(),
@@ -299,7 +298,7 @@ class NernalViewModel(application: Application) : AndroidViewModel(application) 
                 calendarPrimaryMode = prefs.loadCalendarPrimaryMode(),
                 lastAddCategory = prefs.loadLastAddCategory(),
                 showOverlayPermissionPrompt = !Settings.canDrawOverlays(application) && !prefs.hasPromptedOverlayPermission(),
-                hubFilter = if (prefs.loadCalendarPrimaryMode()) HubFilter.EVENTS else HubFilter.ALL,
+                showTasks = prefs.loadShowTasks(),
             )
         }
 
@@ -2436,8 +2435,9 @@ class NernalViewModel(application: Application) : AndroidViewModel(application) 
     // Reminders (Calendar Events + Google Tasks)
     // -------------------------------------------------------------------------
 
-    fun setHubFilter(filter: HubFilter) {
-        _uiState.update { it.copy(hubFilter = filter) }
+    fun setShowTasks(show: Boolean) {
+        prefs.saveShowTasks(show)
+        _uiState.update { it.copy(showTasks = show) }
     }
 
     fun setCalendarViewMode(mode: CalendarViewMode) {
@@ -2454,9 +2454,14 @@ class NernalViewModel(application: Application) : AndroidViewModel(application) 
         Log.d("NernalClick", "setCalendarPrimaryMode called with enabled=$enabled")
         prefs.saveCalendarPrimaryMode(enabled)
         _uiState.update {
+            val nextMode = if (enabled && it.calendarViewMode == CalendarViewMode.NONE) {
+                CalendarViewMode.ITINERARY.also(prefs::saveCalendarViewMode)
+            } else {
+                it.calendarViewMode
+            }
             it.copy(
                 calendarPrimaryMode = enabled,
-                hubFilter = if (enabled) HubFilter.EVENTS else it.hubFilter,
+                calendarViewMode = nextMode,
             )
         }
     }

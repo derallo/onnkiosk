@@ -9,7 +9,7 @@ Optimized for **landscape 1280×800** displays (such as the Walmart Onn 8" Table
 ## Features
 
 - **Device-Adaptive Hardware Detection**: Automatically detects camera, microphone, speakers, and on-device speech recognition — exposing voice assistant, audible alerts, and camera motion wake/sleep on capable tablets (such as Fire Tablets running LineageOS) while keeping headless frames clean.
-- **Google Calendar**: Day, 3-Day, Week, and Month views with horizontal swipe navigation, all-day events pinned cleanly at the top, and tappable Month day pop-outs (with `+ Add Task / Event` for that day).
+- **Google Calendar**: Itinerary, 3-Day, Week, Month, and None views (`Events ▾`) with horizontal swipe navigation, an independent **Tasks** toggle, all-day events pinned cleanly at the top, and tappable Month day pop-outs (with `+ Add Task / Event` for that day).
 - **Google Tasks**: Interactive task checklist with completion toggles, due dates, per-list selection when adding tasks, configurable Default task list, and quick addition that remembers whether you last chose Task or Event.
 - **Google Photos**: Auto-cycling photo slideshow with year filtering, album selection, full-screen mode, top-right `★` favorite badges, uniform 48dp control bar with `★ Only / ☆ Off` filtering, and bottom-right hide/restore toggle for full-screen Calendar mode.
 - **Weather & Doppler Radar**: Single-line auto-fitting clock & date header, current temperature, collapsible 4-day future forecast cards (collapse toggle located right beside the Radar button; tappable for detailed daily & hourly Weather Assessments), dismissible NWS weather alerts, and live interactive RainViewer radar tile overlays with timeline scrubbing.

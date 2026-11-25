@@ -203,17 +203,12 @@ data class MemoryEntry(
     val fromPi: Boolean = false,
 )
 
-enum class HubFilter(val label: String) {
-    ALL("All"),
-    EVENTS("Events"),
-    TASKS("Tasks");
-}
-
 enum class CalendarViewMode(val label: String) {
     ITINERARY("Itinerary"),
     THREE_DAY("3-Day"),
     WEEK("Week"),
     MONTH("Month"),
+    NONE("None"),
 }
 
 data class ReminderItem(

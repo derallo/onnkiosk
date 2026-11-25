@@ -134,7 +134,6 @@ import com.nernal.frame.data.GoogleAuthState
 import com.nernal.frame.data.GoogleCalendarInfo
 import com.nernal.frame.data.GoogleTaskListInfo
 import com.nernal.frame.data.HourlyForecast
-import com.nernal.frame.data.HubFilter
 import com.nernal.frame.data.PiConnectionState
 import com.nernal.frame.data.ReminderCategory
 import com.nernal.frame.data.ReminderItem
@@ -164,7 +163,7 @@ fun InformationalWing(
     onWeatherDayClick: (String) -> Unit,
     onDismissWeatherAlert: (WeatherAlert) -> Unit,
     onToggleWeatherCollapsed: () -> Unit,
-    onFilterChange: (HubFilter) -> Unit,
+    onShowTasksChange: (Boolean) -> Unit,
     onToggleActiveTaskListFilter: (String) -> Unit = {},
     onSetDefaultTaskList: (String) -> Unit = {},
     onAddReminder: (String, ReminderCategory, String?, String?) -> Unit,
@@ -203,7 +202,7 @@ fun InformationalWing(
 
         OmniHubCard(
             reminders = state.reminders,
-            activeFilter = state.hubFilter,
+            showTasks = state.showTasks,
             calendarViewMode = state.calendarViewMode,
             todayKey = state.todayKey,
             availableTaskLists = state.availableTaskLists,
@@ -213,7 +212,7 @@ fun InformationalWing(
             availableCalendars = state.availableCalendars,
             onToggleActiveTaskListFilter = onToggleActiveTaskListFilter,
             onSetDefaultTaskList = onSetDefaultTaskList,
-            onFilterChange = onFilterChange,
+            onShowTasksChange = onShowTasksChange,
             onCalendarViewModeChange = onCalendarViewModeChange,
             onAddReminder = onAddReminder,
             lastAddCategory = lastAddCategory,
@@ -896,7 +895,7 @@ private fun ForecastDayChip(
 @Composable
 fun OmniHubCard(
     reminders: List<ReminderItem>,
-    activeFilter: HubFilter,
+    showTasks: Boolean,
     calendarViewMode: CalendarViewMode = CalendarViewMode.ITINERARY,
     todayKey: String,
     availableTaskLists: List<GoogleTaskListInfo> = emptyList(),
@@ -906,7 +905,7 @@ fun OmniHubCard(
     availableCalendars: List<GoogleCalendarInfo> = emptyList(),
     onToggleActiveTaskListFilter: (String) -> Unit = {},
     onSetDefaultTaskList: (String) -> Unit = {},
-    onFilterChange: (HubFilter) -> Unit,
+    onShowTasksChange: (Boolean) -> Unit,
     onCalendarViewModeChange: (CalendarViewMode) -> Unit = {},
     onAddReminder: (String, ReminderCategory, String?, String?) -> Unit,
     onToggleReminder: (String) -> Unit,
@@ -929,8 +928,8 @@ fun OmniHubCard(
         val filtered = availableTaskLists.filter { it.id in selectedTaskListIds }
         if (filtered.isNotEmpty()) filtered else availableTaskLists
     }
-    val tabFilterableLists = remember(relevantTaskLists, activeFilter) {
-        if (activeFilter == HubFilter.TASKS) relevantTaskLists else emptyList()
+    val tabFilterableLists = remember(relevantTaskLists, showTasks) {
+        if (showTasks) relevantTaskLists else emptyList()
     }
 
     val tomorrowKey = remember(todayKey) {
@@ -939,6 +938,25 @@ fun OmniHubCard(
 
     val todayDateFormatted = remember(todayKey) { formatSectionDate(todayKey) }
     val tomorrowDateFormatted = remember(tomorrowKey) { formatSectionDate(tomorrowKey) }
+
+    val filteredTasks = remember(reminders, activeTaskListFilters) {
+        reminders.filter {
+            it.category == ReminderCategory.TASK &&
+                (activeTaskListFilters.isEmpty() || it.sourceId == null || it.sourceId in activeTaskListFilters)
+        }
+    }
+    val activeTasks = remember(filteredTasks) { filteredTasks.filter { !it.completed } }
+    val completedTasks = remember(filteredTasks) { filteredTasks.filter { it.completed } }
+
+    val visibleReminders = remember(reminders, showTasks, activeTaskListFilters) {
+        reminders.filter { item ->
+            when (item.category) {
+                ReminderCategory.EVENT -> true
+                ReminderCategory.TASK -> showTasks &&
+                    (activeTaskListFilters.isEmpty() || item.sourceId == null || item.sourceId in activeTaskListFilters)
+            }
+        }
+    }
 
     val eventsOnly = remember(reminders) { reminders.filter { it.category == ReminderCategory.EVENT } }
     val todayEvents = remember(eventsOnly, todayKey) { eventsOnly.filter { it.dateKey == todayKey } }
@@ -950,8 +968,8 @@ fun OmniHubCard(
         eventsOnly.filter { it.dateKey != null && it.dateKey < todayKey }
     }
 
-    val allActive = remember(reminders) { reminders.filter { !it.completed } }
-    val allCompleted = remember(reminders) { reminders.filter { it.completed } }
+    val allActive = remember(visibleReminders) { visibleReminders.filter { !it.completed } }
+    val allCompleted = remember(visibleReminders) { visibleReminders.filter { it.completed } }
     val allTodayItems = remember(allActive, todayKey) {
         allActive.filter { it.dateKey == todayKey }.sortedWith(
             compareBy<ReminderItem> { if (it.category == ReminderCategory.EVENT) 0 else 1 }
@@ -964,15 +982,9 @@ fun OmniHubCard(
     val allFutureItems = remember(allActive, tomorrowKey) {
         allActive.filter { it.dateKey != null && it.dateKey > tomorrowKey }
     }
-
-    val filteredTasks = remember(reminders, activeTaskListFilters) {
-        reminders.filter {
-            it.category == ReminderCategory.TASK &&
-                (activeTaskListFilters.isEmpty() || it.sourceId == null || it.sourceId in activeTaskListFilters)
-        }
+    val undatedActiveTasks = remember(activeTasks) {
+        activeTasks.filter { it.dateKey == null }
     }
-    val activeTasks = remember(filteredTasks) { filteredTasks.filter { !it.completed } }
-    val completedTasks = remember(filteredTasks) { filteredTasks.filter { it.completed } }
 
     NernalCard(
         modifier = modifier,
@@ -987,7 +999,7 @@ fun OmniHubCard(
             verticalArrangement = Arrangement.spacedBy(6.dp),
         ) {
             if (showHeader) {
-                // Header: "Home Hub" + Filter Tabs
+                // Header: "Home Hub" + Events Mode Dropdown + Tasks Toggle + Filter + Add
                 Row(
                 modifier = Modifier.fillMaxWidth(),
                 verticalAlignment = Alignment.CenterVertically,
@@ -1003,104 +1015,103 @@ fun OmniHubCard(
                     verticalAlignment = Alignment.CenterVertically,
                     horizontalArrangement = Arrangement.spacedBy(4.dp),
                 ) {
-                    for (tab in HubFilter.entries) {
-                        val selected = tab == activeFilter
-                        if (tab == HubFilter.EVENTS) {
-                            Box {
-                                Surface(
-                                    color = if (selected) NernalColors.CardSubtle else NernalColors.CardInner,
-                                    shape = RoundedCornerShape(10.dp),
-                                    border = BorderStroke(
-                                        width = 1.dp,
-                                        color = if (selected) NernalColors.Gold.copy(alpha = 0.7f) else NernalColors.BorderSubtle,
-                                    ),
-                                    modifier = Modifier
-                                        .height(48.dp)
-                                        .clickable {
-                                            if (!selected) {
-                                                onFilterChange(HubFilter.EVENTS)
-                                            }
-                                            eventsMenuExpanded = !eventsMenuExpanded
-                                        },
-                                ) {
-                                    Row(
-                                        verticalAlignment = Alignment.CenterVertically,
-                                        horizontalArrangement = Arrangement.spacedBy(4.dp),
-                                        modifier = Modifier.padding(horizontal = 9.dp),
-                                    ) {
-                                        Text(
-                                            text = if (selected) "Events (${calendarViewMode.label}) ▾" else "Events ▾",
-                                            color = if (selected) NernalColors.Ink else NernalColors.InkMuted,
-                                            fontSize = 14.sp,
-                                            fontWeight = if (selected) FontWeight.Bold else FontWeight.Medium,
-                                        )
-                                    }
-                                }
-
-                                DropdownMenu(
-                                    expanded = eventsMenuExpanded,
-                                    onDismissRequest = { eventsMenuExpanded = false },
-                                    modifier = Modifier
-                                        .background(NernalColors.Card)
-                                        .border(1.dp, NernalColors.Border, RoundedCornerShape(12.dp)),
-                                ) {
-                                    for (mode in CalendarViewMode.entries) {
-                                        val isCurrentMode = mode == calendarViewMode && selected
-                                        val icon = when (mode) {
-                                            CalendarViewMode.ITINERARY -> Icons.Rounded.ViewAgenda
-                                            CalendarViewMode.THREE_DAY -> Icons.Rounded.ViewColumn
-                                            CalendarViewMode.WEEK -> Icons.Rounded.CalendarViewWeek
-                                            CalendarViewMode.MONTH -> Icons.Rounded.CalendarMonth
-                                        }
-                                        DropdownMenuItem(
-                                            leadingIcon = {
-                                                Icon(
-                                                    imageVector = icon,
-                                                    contentDescription = null,
-                                                    tint = if (isCurrentMode) NernalColors.Gold else NernalColors.InkMuted,
-                                                    modifier = Modifier.size(18.dp),
-                                                )
-                                            },
-                                            text = {
-                                                Text(
-                                                    text = mode.label,
-                                                    color = if (isCurrentMode) NernalColors.Gold else NernalColors.Ink,
-                                                    fontWeight = if (isCurrentMode) FontWeight.Bold else FontWeight.Normal,
-                                                )
-                                            },
-                                            onClick = {
-                                                onCalendarViewModeChange(mode)
-                                                onFilterChange(HubFilter.EVENTS)
-                                                eventsMenuExpanded = false
-                                            },
-                                        )
-                                    }
-                                }
-                            }
-                        } else {
-                            Surface(
-                                color = if (selected) NernalColors.CardSubtle else NernalColors.CardInner,
-                                shape = RoundedCornerShape(10.dp),
-                                border = BorderStroke(
-                                    width = 1.dp,
-                                    color = if (selected) NernalColors.Gold.copy(alpha = 0.7f) else NernalColors.BorderSubtle,
-                                ),
-                                modifier = Modifier
-                                    .height(48.dp)
-                                    .clickable { onFilterChange(tab) },
+                    val eventsActive = calendarViewMode != CalendarViewMode.NONE
+                    Box {
+                        Surface(
+                            color = if (eventsActive) NernalColors.CardSubtle else NernalColors.CardInner,
+                            shape = RoundedCornerShape(10.dp),
+                            border = BorderStroke(
+                                width = 1.dp,
+                                color = if (eventsActive) NernalColors.Gold.copy(alpha = 0.7f) else NernalColors.BorderSubtle,
+                            ),
+                            modifier = Modifier
+                                .height(48.dp)
+                                .clickable { eventsMenuExpanded = !eventsMenuExpanded },
+                        ) {
+                            Row(
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.spacedBy(4.dp),
+                                modifier = Modifier.padding(horizontal = 9.dp),
                             ) {
-                                Box(
-                                    contentAlignment = Alignment.Center,
-                                    modifier = Modifier.padding(horizontal = 9.dp),
-                                ) {
-                                    Text(
-                                        text = tab.label,
-                                        color = if (selected) NernalColors.Ink else NernalColors.InkMuted,
-                                        fontSize = 14.sp,
-                                        fontWeight = if (selected) FontWeight.Bold else FontWeight.Medium,
-                                    )
-                                }
+                                Text(
+                                    text = "Events (${calendarViewMode.label}) ▾",
+                                    color = if (eventsActive) NernalColors.Ink else NernalColors.InkMuted,
+                                    fontSize = 14.sp,
+                                    fontWeight = if (eventsActive) FontWeight.Bold else FontWeight.Medium,
+                                )
                             }
+                        }
+
+                        DropdownMenu(
+                            expanded = eventsMenuExpanded,
+                            onDismissRequest = { eventsMenuExpanded = false },
+                            modifier = Modifier
+                                .background(NernalColors.Card)
+                                .border(1.dp, NernalColors.Border, RoundedCornerShape(12.dp)),
+                        ) {
+                            for (mode in CalendarViewMode.entries) {
+                                val isCurrentMode = mode == calendarViewMode
+                                val icon = when (mode) {
+                                    CalendarViewMode.ITINERARY -> Icons.Rounded.ViewAgenda
+                                    CalendarViewMode.THREE_DAY -> Icons.Rounded.ViewColumn
+                                    CalendarViewMode.WEEK -> Icons.Rounded.CalendarViewWeek
+                                    CalendarViewMode.MONTH -> Icons.Rounded.CalendarMonth
+                                    CalendarViewMode.NONE -> Icons.Rounded.VisibilityOff
+                                }
+                                DropdownMenuItem(
+                                    leadingIcon = {
+                                        Icon(
+                                            imageVector = icon,
+                                            contentDescription = null,
+                                            tint = if (isCurrentMode) NernalColors.Gold else NernalColors.InkMuted,
+                                            modifier = Modifier.size(18.dp),
+                                        )
+                                    },
+                                    text = {
+                                        Text(
+                                            text = mode.label,
+                                            color = if (isCurrentMode) NernalColors.Gold else NernalColors.Ink,
+                                            fontWeight = if (isCurrentMode) FontWeight.Bold else FontWeight.Normal,
+                                        )
+                                    },
+                                    onClick = {
+                                        onCalendarViewModeChange(mode)
+                                        eventsMenuExpanded = false
+                                    },
+                                )
+                            }
+                        }
+                    }
+
+                    // Independent Tasks on/off toggle
+                    Surface(
+                        color = if (showTasks) NernalColors.CardSubtle else NernalColors.CardInner,
+                        shape = RoundedCornerShape(10.dp),
+                        border = BorderStroke(
+                            width = 1.dp,
+                            color = if (showTasks) NernalColors.Gold.copy(alpha = 0.7f) else NernalColors.BorderSubtle,
+                        ),
+                        modifier = Modifier
+                            .height(48.dp)
+                            .clickable { onShowTasksChange(!showTasks) },
+                    ) {
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(4.dp),
+                            modifier = Modifier.padding(horizontal = 9.dp),
+                        ) {
+                            Icon(
+                                imageVector = if (showTasks) Icons.Rounded.CheckBox else Icons.Rounded.CheckBoxOutlineBlank,
+                                contentDescription = null,
+                                tint = if (showTasks) NernalColors.Gold else NernalColors.InkMuted,
+                                modifier = Modifier.size(16.dp),
+                            )
+                            Text(
+                                text = "Tasks",
+                                color = if (showTasks) NernalColors.Ink else NernalColors.InkMuted,
+                                fontSize = 14.sp,
+                                fontWeight = if (showTasks) FontWeight.Bold else FontWeight.Medium,
+                            )
                         }
                     }
 
@@ -1231,204 +1242,218 @@ fun OmniHubCard(
                     .weight(1f)
                     .fillMaxWidth(),
             ) {
-                when (activeFilter) {
-                    HubFilter.EVENTS -> {
-                        Box(modifier = Modifier.fillMaxSize()) {
-                            when (calendarViewMode) {
-                                    CalendarViewMode.MONTH -> {
-                                        MonthCalendarView(
-                                            reminders = reminders,
-                                            availableCalendars = availableCalendars,
-                                            availableTaskLists = relevantTaskLists,
-                                            defaultTaskListId = defaultTaskListId,
-                                            onSetDefaultTaskList = onSetDefaultTaskList,
-                                            todayKey = todayKey,
-                                            onEventClick = onEventClick,
-                                            onToggleReminder = onToggleReminder,
-                                            onAddItemForDate = { title, category, dateKey, listId ->
-                                                onAddReminder(title, category, dateKey, listId)
-                                            },
-                                            lastAddCategory = lastAddCategory,
-                                            onSelectAddCategory = onSelectAddCategory,
-                                            isPrimaryView = false,
-                                        )
+                when (calendarViewMode) {
+                    CalendarViewMode.MONTH -> {
+                        MonthCalendarView(
+                            reminders = visibleReminders,
+                            availableCalendars = availableCalendars,
+                            availableTaskLists = relevantTaskLists,
+                            defaultTaskListId = defaultTaskListId,
+                            onSetDefaultTaskList = onSetDefaultTaskList,
+                            todayKey = todayKey,
+                            onEventClick = onEventClick,
+                            onToggleReminder = onToggleReminder,
+                            onAddItemForDate = { title, category, dateKey, listId ->
+                                onAddReminder(title, category, dateKey, listId)
+                            },
+                            lastAddCategory = lastAddCategory,
+                            onSelectAddCategory = onSelectAddCategory,
+                            showTasks = showTasks,
+                            isPrimaryView = false,
+                        )
+                    }
+                    CalendarViewMode.WEEK -> {
+                        WeekCalendarView(
+                            reminders = visibleReminders,
+                            availableCalendars = availableCalendars,
+                            todayKey = todayKey,
+                            onEventClick = onEventClick,
+                            onToggleReminder = onToggleReminder,
+                            isPrimaryView = false,
+                        )
+                    }
+                    CalendarViewMode.THREE_DAY -> {
+                        ThreeDayCalendarView(
+                            reminders = visibleReminders,
+                            availableCalendars = availableCalendars,
+                            todayKey = todayKey,
+                            onEventClick = onEventClick,
+                            onToggleReminder = onToggleReminder,
+                            showTasks = showTasks,
+                            isPrimaryView = false,
+                        )
+                    }
+                    CalendarViewMode.ITINERARY -> {
+                        if (!showTasks) {
+                            if (eventsOnly.isEmpty()) {
+                                EmptyHubNotice("No calendar events found", "Events from your selected Google Calendars appear here")
+                            } else {
+                                LazyColumn(
+                                    state = eventsListState,
+                                    modifier = Modifier
+                                        .fillMaxSize()
+                                        .lazyListVerticalScrollbar(eventsListState),
+                                    contentPadding = PaddingValues(end = 8.dp),
+                                    verticalArrangement = Arrangement.spacedBy(3.dp),
+                                ) {
+                                    if (todayEvents.isNotEmpty()) {
+                                        item(key = "header_ev_today") { SectionDivider("TODAY · $todayDateFormatted", todayEvents.size) }
+                                        items(todayEvents, key = { it.id }) { item ->
+                                            ReminderRow(
+                                                item = item,
+                                                todayKey = todayKey,
+                                                availableCalendars = availableCalendars,
+                                                onToggle = { onEventClick(item) },
+                                                onDelete = { onDeleteReminder(item.id) },
+                                                onEventClick = { onEventClick(item) },
+                                            )
+                                        }
                                     }
-                                    CalendarViewMode.WEEK -> {
-                                        WeekCalendarView(
-                                            reminders = reminders,
-                                            availableCalendars = availableCalendars,
-                                            todayKey = todayKey,
-                                            onEventClick = onEventClick,
-                                            onToggleReminder = onToggleReminder,
-                                            isPrimaryView = false,
-                                        )
+
+                                    if (tomorrowEvents.isNotEmpty()) {
+                                        item(key = "header_ev_tomorrow") { SectionDivider("TOMORROW · $tomorrowDateFormatted", tomorrowEvents.size) }
+                                        items(tomorrowEvents, key = { it.id }) { item ->
+                                            ReminderRow(
+                                                item = item,
+                                                todayKey = todayKey,
+                                                availableCalendars = availableCalendars,
+                                                onToggle = { onEventClick(item) },
+                                                onDelete = { onDeleteReminder(item.id) },
+                                                onEventClick = { onEventClick(item) },
+                                            )
+                                        }
                                     }
-                                    CalendarViewMode.THREE_DAY -> {
-                                        ThreeDayCalendarView(
-                                            reminders = reminders,
-                                            availableCalendars = availableCalendars,
-                                            todayKey = todayKey,
-                                            onEventClick = onEventClick,
-                                            onToggleReminder = onToggleReminder,
-                                            isPrimaryView = false,
-                                        )
+
+                                    if (futureEvents.isNotEmpty()) {
+                                        item(key = "header_ev_future") { SectionDivider("UPCOMING & FUTURE", futureEvents.size) }
+                                        items(futureEvents, key = { it.id }) { item ->
+                                            ReminderRow(
+                                                item = item,
+                                                todayKey = todayKey,
+                                                availableCalendars = availableCalendars,
+                                                onToggle = { onEventClick(item) },
+                                                onDelete = { onDeleteReminder(item.id) },
+                                                onEventClick = { onEventClick(item) },
+                                            )
+                                        }
                                     }
-                                    CalendarViewMode.ITINERARY -> {
-                                        if (eventsOnly.isEmpty()) {
-                                            EmptyHubNotice("No calendar events found", "Events from your selected Google Calendars appear here")
-                                        } else {
-                                            LazyColumn(
-                                                state = eventsListState,
-                                                modifier = Modifier
-                                                    .fillMaxSize()
-                                                    .lazyListVerticalScrollbar(eventsListState),
-                                                contentPadding = PaddingValues(end = 8.dp),
-                                                verticalArrangement = Arrangement.spacedBy(3.dp),
-                                            ) {
-                                                if (todayEvents.isNotEmpty()) {
-                                                    item(key = "header_ev_today") { SectionDivider("TODAY · $todayDateFormatted", todayEvents.size) }
-                                                    items(todayEvents, key = { it.id }) { item ->
-                                                        ReminderRow(
-                                                            item = item,
-                                                            todayKey = todayKey,
-                                                            availableCalendars = availableCalendars,
-                                                            onToggle = { onEventClick(item) },
-                                                            onDelete = { onDeleteReminder(item.id) },
-                                                            onEventClick = { onEventClick(item) },
-                                                        )
-                                                    }
-                                                }
 
-                                                if (tomorrowEvents.isNotEmpty()) {
-                                                    item(key = "header_ev_tomorrow") { SectionDivider("TOMORROW · $tomorrowDateFormatted", tomorrowEvents.size) }
-                                                    items(tomorrowEvents, key = { it.id }) { item ->
-                                                        ReminderRow(
-                                                            item = item,
-                                                            todayKey = todayKey,
-                                                            availableCalendars = availableCalendars,
-                                                            onToggle = { onEventClick(item) },
-                                                            onDelete = { onDeleteReminder(item.id) },
-                                                            onEventClick = { onEventClick(item) },
-                                                        )
-                                                    }
-                                                }
+                                    if (pastEvents.isNotEmpty()) {
+                                        item(key = "header_ev_past") { SectionDivider("PAST / RECENT", pastEvents.size) }
+                                        items(pastEvents, key = { it.id }) { item ->
+                                            ReminderRow(
+                                                item = item,
+                                                todayKey = todayKey,
+                                                availableCalendars = availableCalendars,
+                                                onToggle = { onEventClick(item) },
+                                                onDelete = { onDeleteReminder(item.id) },
+                                                onEventClick = { onEventClick(item) },
+                                            )
+                                        }
+                                    }
+                                }
+                            }
+                        } else {
+                            if (visibleReminders.isEmpty()) {
+                                EmptyHubNotice("No reminders or list items yet", "Tap + above to add an event or task")
+                            } else {
+                                LazyColumn(
+                                    state = allListState,
+                                    modifier = Modifier
+                                        .fillMaxSize()
+                                        .lazyListVerticalScrollbar(allListState),
+                                    contentPadding = PaddingValues(end = 8.dp),
+                                    verticalArrangement = Arrangement.spacedBy(3.dp),
+                                ) {
+                                    if (allTodayItems.isNotEmpty()) {
+                                        item(key = "header_all_today") { SectionDivider("TODAY · $todayDateFormatted", allTodayItems.size) }
+                                        items(allTodayItems, key = { it.id }) { item ->
+                                            ReminderRow(
+                                                item = item,
+                                                todayKey = todayKey,
+                                                availableCalendars = availableCalendars,
+                                                onToggle = {
+                                                    if (item.category == ReminderCategory.EVENT) onEventClick(item)
+                                                    else onToggleReminder(item.id)
+                                                },
+                                                onDelete = { onDeleteReminder(item.id) },
+                                                onEventClick = { onEventClick(item) },
+                                            )
+                                        }
+                                    }
 
-                                                if (futureEvents.isNotEmpty()) {
-                                                    item(key = "header_ev_future") { SectionDivider("UPCOMING & FUTURE", futureEvents.size) }
-                                                    items(futureEvents, key = { it.id }) { item ->
-                                                        ReminderRow(
-                                                            item = item,
-                                                            todayKey = todayKey,
-                                                            availableCalendars = availableCalendars,
-                                                            onToggle = { onEventClick(item) },
-                                                            onDelete = { onDeleteReminder(item.id) },
-                                                            onEventClick = { onEventClick(item) },
-                                                        )
-                                                    }
-                                                }
+                                    if (allTomorrowItems.isNotEmpty()) {
+                                        item(key = "header_all_tomorrow") { SectionDivider("TOMORROW · $tomorrowDateFormatted", allTomorrowItems.size) }
+                                        items(allTomorrowItems, key = { it.id }) { item ->
+                                            ReminderRow(
+                                                item = item,
+                                                todayKey = todayKey,
+                                                availableCalendars = availableCalendars,
+                                                onToggle = {
+                                                    if (item.category == ReminderCategory.EVENT) onEventClick(item)
+                                                    else onToggleReminder(item.id)
+                                                },
+                                                onDelete = { onDeleteReminder(item.id) },
+                                                onEventClick = { onEventClick(item) },
+                                            )
+                                        }
+                                    }
 
-                                                if (pastEvents.isNotEmpty()) {
-                                                    item(key = "header_ev_past") { SectionDivider("PAST / RECENT", pastEvents.size) }
-                                                    items(pastEvents, key = { it.id }) { item ->
-                                                        ReminderRow(
-                                                            item = item,
-                                                            todayKey = todayKey,
-                                                            availableCalendars = availableCalendars,
-                                                            onToggle = { onEventClick(item) },
-                                                            onDelete = { onDeleteReminder(item.id) },
-                                                            onEventClick = { onEventClick(item) },
-                                                        )
-                                                    }
-                                                }
-                                            }
+                                    if (allFutureItems.isNotEmpty()) {
+                                        item(key = "header_all_future") { SectionDivider("UPCOMING & FUTURE", allFutureItems.size) }
+                                        items(allFutureItems, key = { it.id }) { item ->
+                                            ReminderRow(
+                                                item = item,
+                                                todayKey = todayKey,
+                                                availableCalendars = availableCalendars,
+                                                onToggle = {
+                                                    if (item.category == ReminderCategory.EVENT) onEventClick(item)
+                                                    else onToggleReminder(item.id)
+                                                },
+                                                onDelete = { onDeleteReminder(item.id) },
+                                                onEventClick = { onEventClick(item) },
+                                            )
+                                        }
+                                    }
+
+                                    if (undatedActiveTasks.isNotEmpty()) {
+                                        item(key = "header_all_undated_tasks") { SectionDivider("TO-DO TASKS", undatedActiveTasks.size) }
+                                        items(undatedActiveTasks, key = { it.id }) { item ->
+                                            ReminderRow(
+                                                item = item,
+                                                todayKey = todayKey,
+                                                onToggle = { onToggleReminder(item.id) },
+                                                onDelete = { onDeleteReminder(item.id) },
+                                                onEventClick = { onEventClick(item) },
+                                            )
+                                        }
+                                    }
+
+                                    if (allCompleted.isNotEmpty()) {
+                                        item(key = "header_all_completed") { SectionDivider("COMPLETED", allCompleted.size) }
+                                        items(allCompleted, key = { it.id }) { item ->
+                                            ReminderRow(
+                                                item = item,
+                                                todayKey = todayKey,
+                                                availableCalendars = availableCalendars,
+                                                onToggle = {
+                                                    if (item.category == ReminderCategory.EVENT) onEventClick(item)
+                                                    else onToggleReminder(item.id)
+                                                },
+                                                onDelete = { onDeleteReminder(item.id) },
+                                                onEventClick = { onEventClick(item) },
+                                            )
                                         }
                                     }
                                 }
                             }
                         }
-
-                    HubFilter.ALL -> {
-                        if (reminders.isEmpty()) {
-                            EmptyHubNotice("No reminders or list items yet", "Add a reminder, appointment, or grocery item below")
-                        } else {
-                            LazyColumn(
-                                state = allListState,
-                                modifier = Modifier
-                                    .fillMaxSize()
-                                    .lazyListVerticalScrollbar(allListState),
-                                contentPadding = PaddingValues(end = 8.dp),
-                                verticalArrangement = Arrangement.spacedBy(3.dp),
-                            ) {
-                                if (allTodayItems.isNotEmpty()) {
-                                    item(key = "header_all_today") { SectionDivider("TODAY · $todayDateFormatted", allTodayItems.size) }
-                                    items(allTodayItems, key = { it.id }) { item ->
-                                        ReminderRow(
-                                            item = item,
-                                            todayKey = todayKey,
-                                            availableCalendars = availableCalendars,
-                                            onToggle = {
-                                                if (item.category == ReminderCategory.EVENT) onEventClick(item)
-                                                else onToggleReminder(item.id)
-                                            },
-                                            onDelete = { onDeleteReminder(item.id) },
-                                            onEventClick = { onEventClick(item) },
-                                        )
-                                    }
-                                }
-
-                                if (allTomorrowItems.isNotEmpty()) {
-                                    item(key = "header_all_tomorrow") { SectionDivider("TOMORROW · $tomorrowDateFormatted", allTomorrowItems.size) }
-                                    items(allTomorrowItems, key = { it.id }) { item ->
-                                        ReminderRow(
-                                            item = item,
-                                            todayKey = todayKey,
-                                            availableCalendars = availableCalendars,
-                                            onToggle = {
-                                                if (item.category == ReminderCategory.EVENT) onEventClick(item)
-                                                else onToggleReminder(item.id)
-                                            },
-                                            onDelete = { onDeleteReminder(item.id) },
-                                            onEventClick = { onEventClick(item) },
-                                        )
-                                    }
-                                }
-
-                                if (allFutureItems.isNotEmpty()) {
-                                    item(key = "header_all_future") { SectionDivider("UPCOMING & FUTURE", allFutureItems.size) }
-                                    items(allFutureItems, key = { it.id }) { item ->
-                                        ReminderRow(
-                                            item = item,
-                                            todayKey = todayKey,
-                                            availableCalendars = availableCalendars,
-                                            onToggle = {
-                                                if (item.category == ReminderCategory.EVENT) onEventClick(item)
-                                                else onToggleReminder(item.id)
-                                            },
-                                            onDelete = { onDeleteReminder(item.id) },
-                                            onEventClick = { onEventClick(item) },
-                                        )
-                                    }
-                                }
-
-                                if (allCompleted.isNotEmpty()) {
-                                    item(key = "header_all_completed") { SectionDivider("COMPLETED", allCompleted.size) }
-                                    items(allCompleted, key = { it.id }) { item ->
-                                        ReminderRow(
-                                            item = item,
-                                            todayKey = todayKey,
-                                            onToggle = { onToggleReminder(item.id) },
-                                            onDelete = { onDeleteReminder(item.id) },
-                                            onEventClick = { onEventClick(item) },
-                                        )
-                                    }
-                                }
-                            }
-                        }
                     }
-
-                    HubFilter.TASKS -> {
-                        if (filteredTasks.isEmpty()) {
-                            EmptyHubNotice("No tasks yet", "Add a task or to-do item below")
+                    CalendarViewMode.NONE -> {
+                        if (!showTasks) {
+                            EmptyHubNotice("Events and tasks are hidden", "Pick an Events view or turn on Tasks above")
+                        } else if (filteredTasks.isEmpty()) {
+                            EmptyHubNotice("No tasks yet", "Tap + above to add a task or to-do item")
                         } else {
                             LazyColumn(
                                 state = tasksListState,
@@ -1446,7 +1471,7 @@ fun OmniHubCard(
                                             todayKey = todayKey,
                                             onToggle = { onToggleReminder(item.id) },
                                             onDelete = { onDeleteReminder(item.id) },
-                                            onEventClick = { },
+                                            onEventClick = { onEventClick(item) },
                                         )
                                     }
                                 }
@@ -1458,7 +1483,7 @@ fun OmniHubCard(
                                             todayKey = todayKey,
                                             onToggle = { onToggleReminder(item.id) },
                                             onDelete = { onDeleteReminder(item.id) },
-                                            onEventClick = { },
+                                            onEventClick = { onEventClick(item) },
                                         )
                                     }
                                 }
@@ -2212,6 +2237,7 @@ fun MonthCalendarView(
     onAddItemForDate: ((String, ReminderCategory, String, String?) -> Unit)? = null,
     lastAddCategory: ReminderCategory = ReminderCategory.TASK,
     onSelectAddCategory: (ReminderCategory) -> Unit = {},
+    showTasks: Boolean = true,
     isPrimaryView: Boolean = false,
     modifier: Modifier = Modifier,
 ) {
@@ -2259,6 +2285,7 @@ fun MonthCalendarView(
             },
             lastAddCategory = lastAddCategory,
             onSelectAddCategory = onSelectAddCategory,
+            showTasks = showTasks,
             onDismiss = { popupDate = null },
         )
     }
@@ -2624,6 +2651,7 @@ private fun DayEventsDialog(
     onAddItem: ((String, ReminderCategory, String?) -> Unit)? = null,
     lastAddCategory: ReminderCategory = ReminderCategory.TASK,
     onSelectAddCategory: (ReminderCategory) -> Unit = {},
+    showTasks: Boolean = true,
     onDismiss: () -> Unit,
 ) {
     val dateHeading = remember(date) {
@@ -2684,7 +2712,7 @@ private fun DayEventsDialog(
             ) {
                 if (events.isEmpty() && tasks.isEmpty()) {
                     Text(
-                        text = "No events or tasks scheduled for this day.",
+                        text = if (showTasks) "No events or tasks scheduled for this day." else "No events scheduled for this day.",
                         color = NernalColors.InkMuted,
                         fontSize = 15.sp,
                         modifier = Modifier.padding(vertical = 8.dp),
@@ -2847,6 +2875,7 @@ fun ThreeDayCalendarView(
     todayKey: String,
     onEventClick: (ReminderItem) -> Unit,
     onToggleReminder: (String) -> Unit = {},
+    showTasks: Boolean = true,
     isPrimaryView: Boolean = false,
     modifier: Modifier = Modifier,
 ) {
@@ -3033,7 +3062,7 @@ fun ThreeDayCalendarView(
                                 contentAlignment = Alignment.Center,
                             ) {
                                 Text(
-                                    text = "No events or tasks",
+                                    text = if (showTasks) "No events or tasks" else "No events",
                                     color = NernalColors.InkMuted.copy(alpha = 0.4f),
                                     fontSize = 14.sp,
                                 )
@@ -3895,7 +3924,7 @@ fun CalendarPrimaryWing(
     onWeatherDayClick: (String) -> Unit,
     onDismissWeatherAlert: (WeatherAlert) -> Unit,
     onToggleWeatherCollapsed: () -> Unit,
-    onFilterChange: (HubFilter) -> Unit,
+    onShowTasksChange: (Boolean) -> Unit,
     onToggleActiveTaskListFilter: (String) -> Unit = {},
     onSetDefaultTaskList: (String) -> Unit = {},
     onAddReminder: (String, ReminderCategory, String?, String?) -> Unit,
@@ -3918,11 +3947,21 @@ fun CalendarPrimaryWing(
     modifier: Modifier = Modifier,
 ) {
     var calMenuExpanded by remember { mutableStateOf(false) }
+    var filterMenuExpanded by remember { mutableStateOf(false) }
     var showAddDialog by remember { mutableStateOf(false) }
 
     val relevantTaskLists = remember(state.availableTaskLists, state.selectedTaskListIds) {
         val filtered = state.availableTaskLists.filter { it.id in state.selectedTaskListIds }
         if (filtered.isNotEmpty()) filtered else state.availableTaskLists
+    }
+    val visibleReminders = remember(state.reminders, state.showTasks, state.activeTaskListFilters) {
+        state.reminders.filter { item ->
+            when (item.category) {
+                ReminderCategory.EVENT -> true
+                ReminderCategory.TASK -> state.showTasks &&
+                    (state.activeTaskListFilters.isEmpty() || item.sourceId == null || item.sourceId in state.activeTaskListFilters)
+            }
+        }
     }
 
     Column(
@@ -3964,110 +4003,184 @@ fun CalendarPrimaryWing(
                         .padding(14.dp),
                     verticalArrangement = Arrangement.spacedBy(10.dp),
                 ) {
-                // Header with Primary Navigation Tabs (Calendar / Tasks / All)
+                // Header with Events View Dropdown + Tasks Toggle + Task Filter + Add
                 Row(
                     modifier = Modifier.fillMaxWidth(),
                     verticalAlignment = Alignment.CenterVertically,
                     horizontalArrangement = Arrangement.SpaceBetween,
                 ) {
-                    // Left: Filter tabs
+                    // Left: Events dropdown + Tasks toggle + Task list filter
                     Row(
                         verticalAlignment = Alignment.CenterVertically,
                         horizontalArrangement = Arrangement.spacedBy(6.dp),
                     ) {
-                        for (tab in HubFilter.entries) {
-                            val selected = tab == state.hubFilter
-                            if (tab == HubFilter.EVENTS) {
-                                Box {
-                                    Surface(
-                                        onClick = {
-                                            if (!selected) {
-                                                onFilterChange(HubFilter.EVENTS)
-                                            }
-                                            calMenuExpanded = !calMenuExpanded
-                                        },
-                                        color = if (selected) NernalColors.CardSubtle else Color.Black,
-                                        shape = RoundedCornerShape(10.dp),
-                                        border = BorderStroke(
-                                            width = 1.dp,
-                                            color = if (selected) NernalColors.Gold.copy(alpha = 0.8f) else NernalColors.BorderSubtle,
-                                        ),
-                                        modifier = Modifier.height(44.dp),
-                                    ) {
-                                        Row(
-                                            verticalAlignment = Alignment.CenterVertically,
-                                            horizontalArrangement = Arrangement.spacedBy(4.dp),
-                                            modifier = Modifier.padding(horizontal = 14.dp),
-                                        ) {
-                                            Text(
-                                                text = if (selected) "Calendar (${state.calendarViewMode.label}) ▾" else "Calendar ▾",
-                                                color = if (selected) NernalColors.Ink else NernalColors.InkMuted,
-                                                fontSize = 15.sp,
-                                                fontWeight = if (selected) FontWeight.Bold else FontWeight.Medium,
-                                            )
-                                        }
-                                    }
-
-                                    DropdownMenu(
-                                        expanded = calMenuExpanded,
-                                        onDismissRequest = { calMenuExpanded = false },
-                                        modifier = Modifier
-                                            .background(NernalColors.Card)
-                                            .border(1.dp, NernalColors.Border, RoundedCornerShape(12.dp)),
-                                    ) {
-                                        for (mode in CalendarViewMode.entries) {
-                                            val isCurrentMode = mode == state.calendarViewMode && selected
-                                            val icon = when (mode) {
-                                                CalendarViewMode.ITINERARY -> Icons.Rounded.ViewAgenda
-                                                CalendarViewMode.THREE_DAY -> Icons.Rounded.ViewColumn
-                                                CalendarViewMode.WEEK -> Icons.Rounded.CalendarViewWeek
-                                                CalendarViewMode.MONTH -> Icons.Rounded.CalendarMonth
-                                            }
-                                            DropdownMenuItem(
-                                                leadingIcon = {
-                                                    Icon(
-                                                        imageVector = icon,
-                                                        contentDescription = null,
-                                                        tint = if (isCurrentMode) NernalColors.Gold else NernalColors.InkMuted,
-                                                        modifier = Modifier.size(18.dp),
-                                                    )
-                                                },
-                                                text = {
-                                                    Text(
-                                                        text = mode.label,
-                                                        color = if (isCurrentMode) NernalColors.Gold else NernalColors.Ink,
-                                                        fontWeight = if (isCurrentMode) FontWeight.Bold else FontWeight.Normal,
-                                                    )
-                                                },
-                                                onClick = {
-                                                    onCalendarViewModeChange(mode)
-                                                    onFilterChange(HubFilter.EVENTS)
-                                                    calMenuExpanded = false
-                                                },
-                                            )
-                                        }
-                                    }
+                        val eventsActive = state.calendarViewMode != CalendarViewMode.NONE
+                        Box {
+                            Surface(
+                                onClick = { calMenuExpanded = !calMenuExpanded },
+                                color = if (eventsActive) NernalColors.CardSubtle else Color.Black,
+                                shape = RoundedCornerShape(10.dp),
+                                border = BorderStroke(
+                                    width = 1.dp,
+                                    color = if (eventsActive) NernalColors.Gold.copy(alpha = 0.8f) else NernalColors.BorderSubtle,
+                                ),
+                                modifier = Modifier.height(44.dp),
+                            ) {
+                                Row(
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    horizontalArrangement = Arrangement.spacedBy(4.dp),
+                                    modifier = Modifier.padding(horizontal = 14.dp),
+                                ) {
+                                    Text(
+                                        text = "Events (${state.calendarViewMode.label}) ▾",
+                                        color = if (eventsActive) NernalColors.Ink else NernalColors.InkMuted,
+                                        fontSize = 15.sp,
+                                        fontWeight = if (eventsActive) FontWeight.Bold else FontWeight.Medium,
+                                    )
                                 }
-                            } else {
+                            }
+
+                            DropdownMenu(
+                                expanded = calMenuExpanded,
+                                onDismissRequest = { calMenuExpanded = false },
+                                modifier = Modifier
+                                    .background(NernalColors.Card)
+                                    .border(1.dp, NernalColors.Border, RoundedCornerShape(12.dp)),
+                            ) {
+                                for (mode in CalendarViewMode.entries) {
+                                    val isCurrentMode = mode == state.calendarViewMode
+                                    val icon = when (mode) {
+                                        CalendarViewMode.ITINERARY -> Icons.Rounded.ViewAgenda
+                                        CalendarViewMode.THREE_DAY -> Icons.Rounded.ViewColumn
+                                        CalendarViewMode.WEEK -> Icons.Rounded.CalendarViewWeek
+                                        CalendarViewMode.MONTH -> Icons.Rounded.CalendarMonth
+                                        CalendarViewMode.NONE -> Icons.Rounded.VisibilityOff
+                                    }
+                                    DropdownMenuItem(
+                                        leadingIcon = {
+                                            Icon(
+                                                imageVector = icon,
+                                                contentDescription = null,
+                                                tint = if (isCurrentMode) NernalColors.Gold else NernalColors.InkMuted,
+                                                modifier = Modifier.size(18.dp),
+                                            )
+                                        },
+                                        text = {
+                                            Text(
+                                                text = mode.label,
+                                                color = if (isCurrentMode) NernalColors.Gold else NernalColors.Ink,
+                                                fontWeight = if (isCurrentMode) FontWeight.Bold else FontWeight.Normal,
+                                            )
+                                        },
+                                        onClick = {
+                                            onCalendarViewModeChange(mode)
+                                            calMenuExpanded = false
+                                        },
+                                    )
+                                }
+                            }
+                        }
+
+                        Surface(
+                            onClick = { onShowTasksChange(!state.showTasks) },
+                            color = if (state.showTasks) NernalColors.CardSubtle else Color.Black,
+                            shape = RoundedCornerShape(10.dp),
+                            border = BorderStroke(
+                                width = 1.dp,
+                                color = if (state.showTasks) NernalColors.Gold.copy(alpha = 0.8f) else NernalColors.BorderSubtle,
+                            ),
+                            modifier = Modifier.height(44.dp),
+                        ) {
+                            Row(
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.spacedBy(6.dp),
+                                modifier = Modifier.padding(horizontal = 14.dp),
+                            ) {
+                                Icon(
+                                    imageVector = if (state.showTasks) Icons.Rounded.CheckBox else Icons.Rounded.CheckBoxOutlineBlank,
+                                    contentDescription = null,
+                                    tint = if (state.showTasks) NernalColors.Gold else NernalColors.InkMuted,
+                                    modifier = Modifier.size(17.dp),
+                                )
+                                Text(
+                                    text = "Tasks",
+                                    color = if (state.showTasks) NernalColors.Ink else NernalColors.InkMuted,
+                                    fontSize = 15.sp,
+                                    fontWeight = if (state.showTasks) FontWeight.Bold else FontWeight.Medium,
+                                )
+                            }
+                        }
+
+                        if (state.showTasks && relevantTaskLists.size > 1) {
+                            Box {
+                                val checkedInTab = relevantTaskLists.count { it.id in state.activeTaskListFilters }
+                                val hasPartialFilter = checkedInTab < relevantTaskLists.size
                                 Surface(
-                                    onClick = { onFilterChange(tab) },
-                                    color = if (selected) NernalColors.CardSubtle else Color.Black,
+                                    onClick = { filterMenuExpanded = !filterMenuExpanded },
+                                    color = if (hasPartialFilter) NernalColors.CardSubtle else Color.Black,
                                     shape = RoundedCornerShape(10.dp),
                                     border = BorderStroke(
                                         width = 1.dp,
-                                        color = if (selected) NernalColors.Gold.copy(alpha = 0.8f) else NernalColors.BorderSubtle,
+                                        color = if (hasPartialFilter) NernalColors.Gold.copy(alpha = 0.85f) else NernalColors.BorderSubtle,
                                     ),
                                     modifier = Modifier.height(44.dp),
                                 ) {
-                                    Box(
-                                        contentAlignment = Alignment.Center,
-                                        modifier = Modifier.padding(horizontal = 14.dp),
+                                    Row(
+                                        verticalAlignment = Alignment.CenterVertically,
+                                        horizontalArrangement = Arrangement.spacedBy(4.dp),
+                                        modifier = Modifier.padding(horizontal = 10.dp),
                                     ) {
+                                        Icon(
+                                            imageVector = Icons.Rounded.FilterList,
+                                            contentDescription = "Filter Task Lists",
+                                            tint = if (hasPartialFilter) NernalColors.Gold else NernalColors.InkMuted,
+                                            modifier = Modifier.size(16.dp),
+                                        )
                                         Text(
-                                            text = tab.label,
-                                            color = if (selected) NernalColors.Ink else NernalColors.InkMuted,
-                                            fontSize = 15.sp,
-                                            fontWeight = if (selected) FontWeight.Bold else FontWeight.Medium,
+                                            text = "Filter",
+                                            color = if (hasPartialFilter) NernalColors.Gold else NernalColors.InkMuted,
+                                            fontSize = 13.sp,
+                                            fontWeight = FontWeight.SemiBold,
+                                        )
+                                    }
+                                }
+
+                                DropdownMenu(
+                                    expanded = filterMenuExpanded,
+                                    onDismissRequest = { filterMenuExpanded = false },
+                                    modifier = Modifier
+                                        .background(NernalColors.Card)
+                                        .border(1.dp, NernalColors.Border, RoundedCornerShape(12.dp)),
+                                ) {
+                                    relevantTaskLists.forEach { taskList ->
+                                        val isChecked = taskList.id in state.activeTaskListFilters
+                                        val canUncheck = checkedInTab > 1
+                                        DropdownMenuItem(
+                                            text = {
+                                                Row(
+                                                    verticalAlignment = Alignment.CenterVertically,
+                                                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                                                ) {
+                                                    Icon(
+                                                        imageVector = if (isChecked) Icons.Rounded.CheckBox else Icons.Rounded.CheckBoxOutlineBlank,
+                                                        contentDescription = null,
+                                                        tint = if (isChecked) NernalColors.Gold else NernalColors.InkMuted,
+                                                        modifier = Modifier.size(18.dp),
+                                                    )
+                                                    Text(
+                                                        text = taskList.title,
+                                                        color = if (isChecked) NernalColors.Ink else NernalColors.InkMuted,
+                                                        fontSize = 13.sp,
+                                                        fontWeight = if (isChecked) FontWeight.SemiBold else FontWeight.Normal,
+                                                    )
+                                                }
+                                            },
+                                            enabled = !isChecked || canUncheck,
+                                            onClick = {
+                                                if (!isChecked || canUncheck) {
+                                                    onToggleActiveTaskListFilter(taskList.id)
+                                                }
+                                            },
                                         )
                                     }
                                 }
@@ -4122,79 +4235,52 @@ fun CalendarPrimaryWing(
                         .fillMaxWidth()
                         .weight(1f),
                 ) {
-                    when (state.hubFilter) {
-                        HubFilter.EVENTS -> {
-                            when (state.calendarViewMode) {
-                                CalendarViewMode.MONTH -> {
-                                    MonthCalendarView(
-                                        reminders = state.reminders,
-                                        availableCalendars = state.availableCalendars,
-                                        availableTaskLists = relevantTaskLists,
-                                        defaultTaskListId = state.defaultTaskListId,
-                                        onSetDefaultTaskList = onSetDefaultTaskList,
-                                        todayKey = state.todayKey,
-                                        onEventClick = onEventClick,
-                                        onToggleReminder = onToggleReminder,
-                                        onAddItemForDate = { title, category, dateKey, listId ->
-                                            onAddReminder(title, category, dateKey, listId)
-                                        },
-                                        lastAddCategory = lastAddCategory,
-                                        onSelectAddCategory = onSelectAddCategory,
-                                        isPrimaryView = true,
-                                    )
-                                }
-                                CalendarViewMode.WEEK -> {
-                                    WeekCalendarView(
-                                        reminders = state.reminders,
-                                        availableCalendars = state.availableCalendars,
-                                        todayKey = state.todayKey,
-                                        onEventClick = onEventClick,
-                                        onToggleReminder = onToggleReminder,
-                                        isPrimaryView = true,
-                                    )
-                                }
-                                CalendarViewMode.THREE_DAY -> {
-                                    ThreeDayCalendarView(
-                                        reminders = state.reminders,
-                                        availableCalendars = state.availableCalendars,
-                                        todayKey = state.todayKey,
-                                        onEventClick = onEventClick,
-                                        onToggleReminder = onToggleReminder,
-                                        isPrimaryView = true,
-                                    )
-                                }
-                                CalendarViewMode.ITINERARY -> {
-                                    OmniHubCard(
-                                        reminders = state.reminders,
-                                        activeFilter = HubFilter.EVENTS,
-                                        calendarViewMode = CalendarViewMode.ITINERARY,
-                                        todayKey = state.todayKey,
-                                        availableTaskLists = state.availableTaskLists,
-                                        selectedTaskListIds = state.selectedTaskListIds,
-                                        defaultTaskListId = state.defaultTaskListId,
-                                        activeTaskListFilters = state.activeTaskListFilters,
-                                        availableCalendars = state.availableCalendars,
-                                        onToggleActiveTaskListFilter = onToggleActiveTaskListFilter,
-                                        onSetDefaultTaskList = onSetDefaultTaskList,
-                                        onFilterChange = onFilterChange,
-                                        onCalendarViewModeChange = onCalendarViewModeChange,
-                                        onAddReminder = onAddReminder,
-                                        lastAddCategory = lastAddCategory,
-                                        onSelectAddCategory = onSelectAddCategory,
-                                        onToggleReminder = onToggleReminder,
-                                        onDeleteReminder = onDeleteReminder,
-                                        onEventClick = onEventClick,
-                                        showHeader = false,
-                                        modifier = Modifier.fillMaxSize(),
-                                    )
-                                }
-                            }
+                    when (state.calendarViewMode) {
+                        CalendarViewMode.MONTH -> {
+                            MonthCalendarView(
+                                reminders = visibleReminders,
+                                availableCalendars = state.availableCalendars,
+                                availableTaskLists = relevantTaskLists,
+                                defaultTaskListId = state.defaultTaskListId,
+                                onSetDefaultTaskList = onSetDefaultTaskList,
+                                todayKey = state.todayKey,
+                                onEventClick = onEventClick,
+                                onToggleReminder = onToggleReminder,
+                                onAddItemForDate = { title, category, dateKey, listId ->
+                                    onAddReminder(title, category, dateKey, listId)
+                                },
+                                lastAddCategory = lastAddCategory,
+                                onSelectAddCategory = onSelectAddCategory,
+                                showTasks = state.showTasks,
+                                isPrimaryView = true,
+                            )
                         }
-                        else -> {
-                            // Tasks / All views
+                        CalendarViewMode.WEEK -> {
+                            WeekCalendarView(
+                                reminders = visibleReminders,
+                                availableCalendars = state.availableCalendars,
+                                todayKey = state.todayKey,
+                                onEventClick = onEventClick,
+                                onToggleReminder = onToggleReminder,
+                                isPrimaryView = true,
+                            )
+                        }
+                        CalendarViewMode.THREE_DAY -> {
+                            ThreeDayCalendarView(
+                                reminders = visibleReminders,
+                                availableCalendars = state.availableCalendars,
+                                todayKey = state.todayKey,
+                                onEventClick = onEventClick,
+                                onToggleReminder = onToggleReminder,
+                                showTasks = state.showTasks,
+                                isPrimaryView = true,
+                            )
+                        }
+                        CalendarViewMode.ITINERARY,
+                        CalendarViewMode.NONE -> {
                             OmniHubCard(
                                 reminders = state.reminders,
-                                activeFilter = state.hubFilter,
+                                showTasks = state.showTasks,
                                 calendarViewMode = state.calendarViewMode,
                                 todayKey = state.todayKey,
                                 availableTaskLists = state.availableTaskLists,
@@ -4204,7 +4290,7 @@ fun CalendarPrimaryWing(
                                 availableCalendars = state.availableCalendars,
                                 onToggleActiveTaskListFilter = onToggleActiveTaskListFilter,
                                 onSetDefaultTaskList = onSetDefaultTaskList,
-                                onFilterChange = onFilterChange,
+                                onShowTasksChange = onShowTasksChange,
                                 onCalendarViewModeChange = onCalendarViewModeChange,
                                 onAddReminder = onAddReminder,
                                 lastAddCategory = lastAddCategory,

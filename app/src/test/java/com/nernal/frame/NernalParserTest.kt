@@ -791,5 +791,7 @@ class NernalParserTest {
         assertEquals("London", intl.searchName)
         assertNull(intl.countryCode)
         assertNull(intl.stateNameFilter)
+
+        assertTrue(com.nernal.frame.data.CalendarViewMode.NONE in com.nernal.frame.data.CalendarViewMode.entries)
     }
 }

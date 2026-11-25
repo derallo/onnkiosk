@@ -278,7 +278,7 @@ private fun NernalFrameRoot(
                 onWeatherDayClick = viewModel::setSelectedWeatherDay,
                 onDismissWeatherAlert = viewModel::dismissWeatherAlert,
                 onToggleWeatherCollapsed = viewModel::toggleWeatherCollapsed,
-                onFilterChange = viewModel::setHubFilter,
+                onShowTasksChange = viewModel::setShowTasks,
                 onToggleActiveTaskListFilter = viewModel::toggleActiveTaskListFilter,
                 onSetDefaultTaskList = viewModel::setDefaultTaskList,
                 onAddReminder = { text, cat, dateKey, taskListId ->
@@ -334,7 +334,7 @@ private fun NernalFrameRoot(
 
                 OmniHubCard(
                     reminders = state.reminders,
-                    activeFilter = state.hubFilter,
+                    showTasks = state.showTasks,
                     calendarViewMode = state.calendarViewMode,
                     todayKey = state.todayKey,
                     availableTaskLists = state.availableTaskLists,
@@ -344,7 +344,7 @@ private fun NernalFrameRoot(
                     availableCalendars = state.availableCalendars,
                     onToggleActiveTaskListFilter = viewModel::toggleActiveTaskListFilter,
                     onSetDefaultTaskList = viewModel::setDefaultTaskList,
-                    onFilterChange = viewModel::setHubFilter,
+                    onShowTasksChange = viewModel::setShowTasks,
                     onCalendarViewModeChange = viewModel::setCalendarViewMode,
                     onAddReminder = { text, cat, dateKey, taskListId ->
                         viewModel.addReminder(
@@ -403,7 +403,7 @@ private fun NernalFrameRoot(
                     onWeatherDayClick = viewModel::setSelectedWeatherDay,
                     onDismissWeatherAlert = viewModel::dismissWeatherAlert,
                     onToggleWeatherCollapsed = viewModel::toggleWeatherCollapsed,
-                    onFilterChange = viewModel::setHubFilter,
+                    onShowTasksChange = viewModel::setShowTasks,
                     onToggleActiveTaskListFilter = viewModel::toggleActiveTaskListFilter,
                     onSetDefaultTaskList = viewModel::setDefaultTaskList,
                     onAddReminder = { text, cat, dateKey, taskListId ->

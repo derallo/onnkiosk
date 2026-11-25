@@ -2299,6 +2299,7 @@ fun SettingsDialog(
                         fontWeight = FontWeight.SemiBold,
                     )
                     Row(
+                        modifier = Modifier.horizontalScroll(rememberScrollState()),
                         horizontalArrangement = Arrangement.spacedBy(8.dp),
                     ) {
                         for (mode in CalendarViewMode.entries) {
@@ -2916,12 +2917,11 @@ fun UserGuideDialog(
                     )
 
                     UserGuideSection(
-                        title = "3. Home Hub: Calendar & Tasks",
-                        content = "• All Tab: Chronological list of upcoming events and active tasks.\n" +
-                            "• Events Tab: Tap 'Events' to switch between Itinerary, 3-Day, Week, and Month views. In Month view, tap any day to pop out its events and tasks, tap '+ Add Task / Event' to add either on that date, or tap an event for full details.\n" +
-                            "• Tasks Tab: Focused view for your Google Task lists with checkboxes to mark items done.\n" +
+                        title = "3. Home Hub: Events & Tasks",
+                        content = "• Events Dropdown: Tap 'Events (...) ▾' to switch between Itinerary, 3-Day, Week, Month, or None (hides events so you can view only Tasks). In Month view, tap any day to pop out its items, tap '+ Add Task / Event' to add either on that date, or tap an event for full details.\n" +
+                            "• Tasks Toggle: Tap the 'Tasks' checkbox button to show or hide tasks across Itinerary, 3-Day, Week, Month, and standalone Tasks mode.\n" +
                             "• Add (+) Button: Tap the '+' button in the top right to quickly add a Task (choosing which Google Task list or setting a Default) or an Event.\n" +
-                            "• Filter Dropdown: Filter individual task lists per tab, and use the 5-second Undo bar if you delete an item by mistake."
+                            "• Filter Dropdown: When Tasks is on and you have multiple task lists, tap Filter to pick which lists appear, and use the 5-second Undo bar if you delete an item by mistake."
                     )
 
                     UserGuideSection(

@@ -76,8 +76,9 @@ Onnkiosk supports connecting your Google account directly using your own OAuth C
 - **Interactive Weather Assessment**: Tap the current weather area or any future forecast card to open the detailed Weather Assessment modal with a plain-English summary, feels-like temps, precipitation expected, wind/gusts & direction, UV index, sunrise/sunset, hourly outlook, and quick links to **Open Radar** or **Read Aloud**.
 - **Dismissible NWS Weather Alerts**: Active alerts appear as a compact warning icon by the location; tap it to inspect full alert details and dismiss individual alerts.
 - **Doppler Radar Modal**: Tap the Radar icon right beside the current temperature (to the left of the weather collapse button) to open the fullscreen interactive RainViewer/NEXRAD radar modal with zoom, pan, play/pause controls, and frame scrubber.
-- **Home Hub (Calendar & Google Tasks)**:
-  - Tab selector for **All**, **Events (`Itinerary / 3-Day / Week / Month`) ▾**, and **Tasks** views.
+- **Home Hub (Events & Google Tasks)**:
+  - **Events (`Itinerary / 3-Day / Week / Month / None`) ▾** dropdown to pick your calendar layout or select **None** to hide events and view only Tasks.
+  - **Tasks** toggle button to independently show or hide tasks across Itinerary, 3-Day, Week, Month, and standalone (`Events: None`) views.
   - Swipe left or right on **3-Day**, **Week**, or **Month** calendars to step backward/forward in time.
   - Multi-day all-day events consolidate cleanly into a single entry with a `Through YYYY-MM-DD` note, and all-day events stay pinned cleanly to the top of day views.
   - **Month View Day Pop-out**: Tap any day in Month view to pop out a modal list of that day's events and tasks; tap **+ Add Task / Event** to schedule a Task (to a chosen or default Task list) or Event directly on that date (remembering your last chosen type), or tap any event in the pop-out to open full Event Details.
