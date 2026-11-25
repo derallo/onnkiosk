@@ -176,7 +176,7 @@ data class DeviceCapabilities(
     val hasOnDeviceSpeech: Boolean = false,
 ) {
     val hasVoiceInputAndOutput: Boolean
-        get() = hasMicrophone && hasAudioOutput
+        get() = hasMicrophone && hasAudioOutput && hasOnDeviceSpeech
 }
 
 enum class VoiceAssistantState {

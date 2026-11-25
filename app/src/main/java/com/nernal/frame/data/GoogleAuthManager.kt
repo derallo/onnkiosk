@@ -232,11 +232,17 @@ class GoogleAuthManager(
                     <title>$appLabel Gemini Key</title></head>
                     <body style="font-family:sans-serif;background:#101113;color:#faf8f5;padding:24px;max-width:520px;margin:0 auto;">
                     <h2 style="color:#f5f2eb;margin-bottom:8px;">Send Gemini API Key to $appLabel</h2>
-                    <p style="color:#bbb7af;font-size:14px;line-height:1.5;">
-                    Paste your Gemini API key from <a href="https://aistudio.google.com/apikey" target="_blank" style="color:#60a5fa;">Google AI Studio</a> below. It transfers directly over your local Wi-Fi straight to this tablet.
-                    </p>
-                    <form method="POST" action="/key" style="background:#18191c;border:1px solid #2e3036;border-radius:12px;padding:16px;margin-top:16px;">
-                    <label for="apikey" style="display:block;color:#f5f2eb;font-weight:bold;font-size:13px;margin-bottom:8px;">Gemini API Key</label>
+                    <div style="background:#18191c;border:1px solid #2e3036;border-radius:12px;padding:16px;margin-top:12px;">
+                    <p style="color:#f5f2eb;font-weight:bold;font-size:14px;margin:0 0 8px 0;">Quick 3-Step Setup</p>
+                    <ol style="color:#bbb7af;font-size:14px;line-height:1.6;margin:0 0 14px 0;padding-left:20px;">
+                    <li>Open Google AI Studio and sign in with your Google account.</li>
+                    <li>Tap <strong>Create API key</strong> and copy the key (starts with <code>AIza...</code>).</li>
+                    <li>Paste it below to send it straight to your tablet over Wi-Fi.</li>
+                    </ol>
+                    <a href="https://aistudio.google.com/apikey" target="_blank" rel="noopener" style="display:block;text-align:center;padding:12px;border-radius:10px;background:#60a5fa;color:#082f49;font-weight:bold;font-size:15px;text-decoration:none;">1. Get Free Gemini API Key ↗</a>
+                    </div>
+                    <form method="POST" action="/key" style="background:#18191c;border:1px solid #2e3036;border-radius:12px;padding:16px;margin-top:14px;">
+                    <label for="apikey" style="display:block;color:#f5f2eb;font-weight:bold;font-size:13px;margin-bottom:8px;">2. Paste Gemini API Key</label>
                     <input id="apikey" name="apikey" type="password" placeholder="AIzaSy..." required autocomplete="off" style="width:100%;box-sizing:border-box;padding:12px;border-radius:8px;border:1px solid #2e3036;background:#101113;color:#faf8f5;font-size:15px;margin-bottom:14px;">
                     <button type="submit" style="width:100%;padding:14px;border:none;border-radius:10px;background:#f5f2eb;color:#101113;font-weight:bold;font-size:16px;cursor:pointer;">Save Key to Tablet</button>
                     </form>

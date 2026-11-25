@@ -735,4 +735,29 @@ class NernalParserTest {
         assertTrue(tomorrowAssessment.contains("high UV"))
         assertTrue(tomorrowAssessment.contains("freezing overnight lows"))
     }
+
+    @Test
+    fun deviceCapabilitiesVoiceRequiresOnDeviceSpeechRecognition() {
+        val noSpeech = com.nernal.frame.data.DeviceCapabilities(
+            hasCamera = true,
+            hasMicrophone = true,
+            hasAudioOutput = true,
+            hasOnDeviceSpeech = false,
+        )
+        assertFalse(noSpeech.hasVoiceInputAndOutput)
+
+        val noMic = com.nernal.frame.data.DeviceCapabilities(
+            hasMicrophone = false,
+            hasAudioOutput = true,
+            hasOnDeviceSpeech = true,
+        )
+        assertFalse(noMic.hasVoiceInputAndOutput)
+
+        val allPresent = com.nernal.frame.data.DeviceCapabilities(
+            hasMicrophone = true,
+            hasAudioOutput = true,
+            hasOnDeviceSpeech = true,
+        )
+        assertTrue(allPresent.hasVoiceInputAndOutput)
+    }
 }

@@ -1,7 +1,9 @@
 package com.nernal.frame.ui
 
+import android.content.ComponentName
 import android.content.Context
 import android.content.Intent
+import android.content.pm.PackageManager
 import android.graphics.Bitmap
 import android.provider.Settings
 import android.view.inputmethod.InputMethodManager
@@ -54,6 +56,7 @@ import androidx.compose.material.icons.rounded.Pause
 import androidx.compose.material.icons.rounded.Person
 import androidx.compose.material.icons.rounded.PhotoLibrary
 import androidx.compose.material.icons.rounded.PlayArrow
+import androidx.compose.material.icons.rounded.PowerSettingsNew
 import androidx.compose.material.icons.rounded.Refresh
 import androidx.compose.material.icons.rounded.Schedule
 import androidx.compose.material.icons.rounded.Settings
@@ -92,6 +95,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.asImageBitmap
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
@@ -125,8 +129,29 @@ fun openDeviceWifiSettings(context: Context) {
     openDeviceSystemSettings(context, Settings.ACTION_WIFI_SETTINGS, Settings.ACTION_SETTINGS)
 }
 
+fun openDeviceAndroidSettings(context: Context) {
+    openDeviceSystemSettings(context, Settings.ACTION_SETTINGS, Settings.ACTION_SETTINGS)
+}
+
 fun openDeviceHomeSettings(context: Context) {
     openDeviceSystemSettings(context, Settings.ACTION_HOME_SETTINGS, Settings.ACTION_SETTINGS)
+}
+
+fun exitAppToHome(context: Context) {
+    val homeIntent = Intent(Intent.ACTION_MAIN).apply {
+        addCategory(Intent.CATEGORY_HOME)
+        flags = Intent.FLAG_ACTIVITY_NEW_TASK
+    }
+    val resolvedHome = runCatching {
+        context.packageManager.queryIntentActivities(homeIntent, PackageManager.MATCH_DEFAULT_ONLY)
+            .firstOrNull { it.activityInfo?.packageName != context.packageName }
+            ?.activityInfo
+    }.getOrNull()
+    if (resolvedHome != null) {
+        homeIntent.component = ComponentName(resolvedHome.packageName, resolvedHome.name)
+    }
+    runCatching { context.startActivity(homeIntent) }
+    (context as? ComponentActivity)?.finishAndRemoveTask()
 }
 
 private fun openDeviceSystemSettings(
@@ -168,14 +193,17 @@ fun LifestyleWing(
     onDimScreen: () -> Unit,
     onInspectPhoto: () -> Unit,
     onToggleCalendarPrimary: ((Boolean) -> Unit)? = null,
+    showTopUtilityBar: Boolean = true,
+    isPortrait: Boolean = false,
     modifier: Modifier = Modifier,
 ) {
     Column(
-        modifier = modifier.fillMaxHeight(),
+        modifier = modifier,
         verticalArrangement = Arrangement.spacedBy(10.dp),
     ) {
         // Top Utility Bar: Speak (outlined) on left; right-to-left from right edge: Settings, Night, Eye (if camera)
         // Account & Wi-Fi appear only during first setup (always accessible inside Settings afterward)
+        if (showTopUtilityBar) {
         Row(
             modifier = Modifier
                 .fillMaxWidth()
@@ -407,6 +435,7 @@ fun LifestyleWing(
                 }
             }
         }
+        }
 
         // Photo Carousel Card
         NernalCard(
@@ -497,6 +526,7 @@ fun LifestyleWing(
                     onToggleFavoritesFilter = onToggleFavoritesFilter,
                     onEnterFullscreen = onEnterFullscreen,
                     onHide = onToggleCalendarPrimary?.let { fn -> { fn(true) } },
+                    isPortrait = isPortrait,
                 )
             }
         }
@@ -893,6 +923,7 @@ private fun PhotoControlBar(
     onToggleFavoritesFilter: () -> Unit,
     onEnterFullscreen: () -> Unit,
     onHide: (() -> Unit)?,
+    isPortrait: Boolean = false,
 ) {
     Row(
         modifier = Modifier
@@ -1066,7 +1097,11 @@ private fun PhotoControlBar(
                             imageVector = Icons.Rounded.LastPage,
                             contentDescription = "Hide Photos",
                             tint = NernalColors.InkMuted,
-                            modifier = Modifier.size(22.dp),
+                            modifier = Modifier
+                                .size(22.dp)
+                                .then(
+                                    if (isPortrait) Modifier.graphicsLayer { rotationZ = 90f } else Modifier
+                                ),
                         )
                     }
                 }
@@ -1452,6 +1487,7 @@ fun SettingsDialog(
     onCheckForUpdates: () -> Unit = {},
     onInstallUpdate: () -> Unit = {},
     onResetFilters: () -> Unit,
+    onExitApp: () -> Unit = {},
     onDismiss: () -> Unit,
 ) {
     Dialog(
@@ -1473,16 +1509,49 @@ fun SettingsDialog(
                 verticalArrangement = Arrangement.spacedBy(12.dp),
             ) {
                 Row(
+                    modifier = Modifier.fillMaxWidth(),
                     verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(10.dp),
+                    horizontalArrangement = Arrangement.SpaceBetween,
                 ) {
-                    Icon(Icons.Rounded.Settings, null, tint = NernalColors.Gold)
-                    Text(
-                        text = "Frame Display Settings",
-                        color = NernalColors.Ink,
-                        fontSize = 20.sp,
-                        fontWeight = FontWeight.Bold,
-                    )
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(10.dp),
+                    ) {
+                        Icon(Icons.Rounded.Settings, null, tint = NernalColors.Gold)
+                        Text(
+                            text = "Frame Display Settings",
+                            color = NernalColors.Ink,
+                            fontSize = 20.sp,
+                            fontWeight = FontWeight.Bold,
+                        )
+                    }
+
+                    Surface(
+                        onClick = onExitApp,
+                        color = NernalColors.CardInner,
+                        shape = RoundedCornerShape(12.dp),
+                        border = BorderStroke(1.dp, NernalColors.Rose.copy(alpha = 0.65f)),
+                        modifier = Modifier.height(48.dp),
+                    ) {
+                        Row(
+                            modifier = Modifier.padding(horizontal = 12.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(6.dp),
+                        ) {
+                            Icon(
+                                imageVector = Icons.Rounded.PowerSettingsNew,
+                                contentDescription = "Close App & Go Home",
+                                tint = NernalColors.Rose,
+                                modifier = Modifier.size(20.dp),
+                            )
+                            Text(
+                                text = "Exit",
+                                color = NernalColors.Rose,
+                                fontSize = 14.sp,
+                                fontWeight = FontWeight.Bold,
+                            )
+                        }
+                    }
                 }
 
                 HorizontalDivider(color = NernalColors.BorderSubtle)
@@ -1588,6 +1657,43 @@ fun SettingsDialog(
                         }
                     }
 
+                    Surface(
+                        color = NernalColors.CardInner,
+                        shape = RoundedCornerShape(14.dp),
+                        border = BorderStroke(1.dp, NernalColors.Border),
+                        modifier = Modifier
+                            .weight(1f)
+                            .clickable { openDeviceAndroidSettings(settingsContext) },
+                    ) {
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(14.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(10.dp),
+                        ) {
+                            Icon(
+                                imageVector = Icons.Rounded.Settings,
+                                contentDescription = null,
+                                tint = NernalColors.Gold,
+                                modifier = Modifier.size(22.dp),
+                            )
+                            Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                                Text(
+                                    text = "Android Settings",
+                                    color = NernalColors.Ink,
+                                    fontSize = 14.sp,
+                                    fontWeight = FontWeight.Bold,
+                                )
+                                Text(
+                                    text = "System & developer options",
+                                    color = NernalColors.InkMuted,
+                                    fontSize = 12.sp,
+                                )
+                            }
+                        }
+                    }
+
                     if (BuildConfig.IS_NERNAL_FAMILY_BUILD) {
                         Surface(
                             color = NernalColors.CardInner,
@@ -1650,6 +1756,14 @@ fun SettingsDialog(
                         HardwareBadgeChip("Microphone", state.capabilities.hasMicrophone)
                         HardwareBadgeChip("Speakers", state.capabilities.hasAudioOutput)
                         HardwareBadgeChip("On-Device Speech", state.capabilities.hasOnDeviceSpeech)
+                    }
+
+                    if (state.capabilities.hasMicrophone && !state.capabilities.hasOnDeviceSpeech) {
+                        Text(
+                            text = "Microphone button is hidden because Android on-device speech recognition is unavailable on this device.",
+                            color = NernalColors.InkMuted,
+                            fontSize = 12.sp,
+                        )
                     }
 
                     if (state.capabilities.hasCamera) {
@@ -1763,9 +1877,10 @@ fun SettingsDialog(
                         }
                     }
 
-                    if (state.capabilities.hasVoiceInputAndOutput || state.capabilities.hasAudioOutput) {
+                    if (state.capabilities.hasVoiceInputAndOutput) {
                         var draftGeminiKey by remember(state.geminiApiKey) { mutableStateOf(state.geminiApiKey) }
                         var showKey by remember { mutableStateOf(false) }
+                        var showKeyGuide by remember(state.geminiApiKey.isBlank()) { mutableStateOf(state.geminiApiKey.isBlank()) }
 
                         Surface(
                             color = NernalColors.CardInner,
@@ -1778,28 +1893,90 @@ fun SettingsDialog(
                                 verticalArrangement = Arrangement.spacedBy(8.dp),
                             ) {
                                 Row(
+                                    modifier = Modifier.fillMaxWidth(),
                                     verticalAlignment = Alignment.CenterVertically,
-                                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                                    horizontalArrangement = Arrangement.SpaceBetween,
                                 ) {
-                                    Icon(
-                                        imageVector = Icons.Rounded.AutoAwesome,
-                                        contentDescription = null,
-                                        tint = NernalColors.Gold,
-                                        modifier = Modifier.size(20.dp),
-                                    )
-                                    Text(
-                                        text = "Gemini API Key (Optional — Unlocks \"Super ${BuildConfig.APP_DISPLAY_NAME}\")",
-                                        color = NernalColors.Gold,
-                                        fontSize = 13.sp,
-                                        fontWeight = FontWeight.Bold,
-                                    )
+                                    Row(
+                                        modifier = Modifier.weight(1f),
+                                        verticalAlignment = Alignment.CenterVertically,
+                                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                                    ) {
+                                        Icon(
+                                            imageVector = Icons.Rounded.AutoAwesome,
+                                            contentDescription = null,
+                                            tint = NernalColors.Gold,
+                                            modifier = Modifier.size(20.dp),
+                                        )
+                                        Text(
+                                            text = "Gemini API Key (Optional — Unlocks \"Super ${BuildConfig.APP_DISPLAY_NAME}\")",
+                                            color = NernalColors.Gold,
+                                            fontSize = 13.sp,
+                                            fontWeight = FontWeight.Bold,
+                                        )
+                                    }
+                                    if (state.geminiApiKey.isNotBlank()) {
+                                        Text(
+                                            text = if (showKeyGuide) "Hide guide ▴" else "Setup guide ▾",
+                                            color = NernalColors.Accent,
+                                            fontSize = 12.sp,
+                                            fontWeight = FontWeight.SemiBold,
+                                            modifier = Modifier
+                                                .clip(RoundedCornerShape(6.dp))
+                                                .clickable { showKeyGuide = !showKeyGuide }
+                                                .padding(horizontal = 6.dp, vertical = 4.dp),
+                                        )
+                                    }
                                 }
                                 Text(
-                                    text = "On-device speech already handles time, weather, schedule, tasks, and screen controls. Add your Gemini API key for conversational AI, camera vision (\"What am I holding?\"), and Memory Book recipes.",
+                                    text = "On-device speech already handles time, weather, schedule, tasks, and screen controls. Add your free Gemini API key for conversational AI, camera vision (\"What am I holding?\"), and Memory Book recipes.",
                                     color = NernalColors.InkMuted,
                                     fontSize = 12.sp,
                                     lineHeight = 17.sp,
                                 )
+                                if (showKeyGuide) {
+                                    Surface(
+                                        color = NernalColors.Bg,
+                                        shape = RoundedCornerShape(10.dp),
+                                        border = BorderStroke(1.dp, NernalColors.BorderSubtle),
+                                        modifier = Modifier.fillMaxWidth(),
+                                    ) {
+                                        Column(
+                                            modifier = Modifier.padding(10.dp),
+                                            verticalArrangement = Arrangement.spacedBy(4.dp),
+                                        ) {
+                                            Text(
+                                                text = "Easy 3-step setup (no typing on the tablet):",
+                                                color = NernalColors.Ink,
+                                                fontSize = 12.sp,
+                                                fontWeight = FontWeight.Bold,
+                                            )
+                                            Text(
+                                                text = "1. On your phone or computer, open aistudio.google.com/apikey and sign in with Google.",
+                                                color = NernalColors.InkMuted,
+                                                fontSize = 12.sp,
+                                                lineHeight = 17.sp,
+                                            )
+                                            Text(
+                                                text = "2. Tap \"Create API key\" and copy the key (starts with AIza...).",
+                                                color = NernalColors.InkMuted,
+                                                fontSize = 12.sp,
+                                                lineHeight = 17.sp,
+                                            )
+                                            Text(
+                                                text = "3. Tap \"Send from Phone/PC\" below, scan the QR code on your phone, and paste it straight over Wi-Fi." +
+                                                    if (state.authState == GoogleAuthState.SIGNED_IN) {
+                                                        " Or paste the key into a Google Task and tap \"Pick from Google Tasks\"."
+                                                    } else {
+                                                        ""
+                                                    },
+                                                color = NernalColors.InkMuted,
+                                                fontSize = 12.sp,
+                                                lineHeight = 17.sp,
+                                            )
+                                        }
+                                    }
+                                }
                                 OutlinedTextField(
                                     value = draftGeminiKey,
                                     onValueChange = { draftGeminiKey = it },
@@ -1829,6 +2006,53 @@ fun SettingsDialog(
                                     modifier = Modifier.horizontalScroll(rememberScrollState()),
                                     horizontalArrangement = Arrangement.spacedBy(8.dp),
                                 ) {
+                                    if (state.geminiApiKey.isBlank()) {
+                                        Button(
+                                            onClick = {
+                                                if (state.geminiKeyLanUrl == null) onStartGeminiKeyLan() else onStopGeminiKeyLan()
+                                            },
+                                            colors = ButtonDefaults.buttonColors(containerColor = NernalColors.Accent),
+                                            shape = RoundedCornerShape(10.dp),
+                                            modifier = Modifier.height(44.dp),
+                                        ) {
+                                            Icon(
+                                                imageVector = Icons.Rounded.Wifi,
+                                                contentDescription = null,
+                                                tint = NernalColors.Bg,
+                                                modifier = Modifier.size(16.dp),
+                                            )
+                                            Spacer(Modifier.width(6.dp))
+                                            Text(
+                                                text = if (state.geminiKeyLanUrl == null) "Send from Phone/PC" else "Stop Wi-Fi Receiver",
+                                                color = NernalColors.Bg,
+                                                fontWeight = FontWeight.Bold,
+                                                fontSize = 13.sp,
+                                            )
+                                        }
+                                    } else {
+                                        OutlinedButton(
+                                            onClick = {
+                                                if (state.geminiKeyLanUrl == null) onStartGeminiKeyLan() else onStopGeminiKeyLan()
+                                            },
+                                            border = BorderStroke(1.dp, NernalColors.Accent.copy(alpha = 0.7f)),
+                                            shape = RoundedCornerShape(10.dp),
+                                            modifier = Modifier.height(44.dp),
+                                        ) {
+                                            Icon(
+                                                imageVector = Icons.Rounded.Wifi,
+                                                contentDescription = null,
+                                                tint = NernalColors.Accent,
+                                                modifier = Modifier.size(16.dp),
+                                            )
+                                            Spacer(Modifier.width(6.dp))
+                                            Text(
+                                                text = if (state.geminiKeyLanUrl == null) "Send from Phone/PC" else "Stop Wi-Fi Receiver",
+                                                color = NernalColors.Accent,
+                                                fontWeight = FontWeight.SemiBold,
+                                                fontSize = 13.sp,
+                                            )
+                                        }
+                                    }
                                     Button(
                                         onClick = { onSaveGeminiApiKey(draftGeminiKey) },
                                         colors = ButtonDefaults.buttonColors(containerColor = NernalColors.Gold),
@@ -1836,28 +2060,6 @@ fun SettingsDialog(
                                         modifier = Modifier.height(44.dp),
                                     ) {
                                         Text("Save Key", color = NernalColors.Bg, fontWeight = FontWeight.Bold, fontSize = 13.sp)
-                                    }
-                                    OutlinedButton(
-                                        onClick = {
-                                            if (state.geminiKeyLanUrl == null) onStartGeminiKeyLan() else onStopGeminiKeyLan()
-                                        },
-                                        border = BorderStroke(1.dp, NernalColors.Accent.copy(alpha = 0.7f)),
-                                        shape = RoundedCornerShape(10.dp),
-                                        modifier = Modifier.height(44.dp),
-                                    ) {
-                                        Icon(
-                                            imageVector = Icons.Rounded.Wifi,
-                                            contentDescription = null,
-                                            tint = NernalColors.Accent,
-                                            modifier = Modifier.size(16.dp),
-                                        )
-                                        Spacer(Modifier.width(6.dp))
-                                        Text(
-                                            text = if (state.geminiKeyLanUrl == null) "Send from Phone/PC" else "Stop Wi-Fi Receiver",
-                                            color = NernalColors.Accent,
-                                            fontWeight = FontWeight.SemiBold,
-                                            fontSize = 13.sp,
-                                        )
                                     }
                                     if (state.authState == GoogleAuthState.SIGNED_IN) {
                                         OutlinedButton(
@@ -2700,9 +2902,9 @@ fun UserGuideDialog(
 
                     UserGuideSection(
                         title = "2. Clock, Weather Assessment & Doppler Radar",
-                        content = "• The top card displays a large high-contrast clock and today's day/date with location underneath, current temperature, today's high/low, and upcoming forecast cards. Tap the chevron icon to collapse or expand weather.\n" +
+                        content = "• The top card displays a single-line auto-fitting clock and today's day/date with location underneath, current temperature, today's high/low, and upcoming forecast cards. Tap the chevron icon right next to the Radar button to collapse weather into a compact pill (or tap the pill to expand).\n" +
                             "• Tap the current weather area or any future forecast card to open a detailed Weather Assessment with plain-English conditions, hourly outlook, wind & gusts, UV index, and sunrise/sunset.\n" +
-                            "• Active NWS warnings appear as a red warning icon by the date; tap to view details and dismiss individual alerts.\n" +
+                            "• Active NWS warnings appear as a red warning icon by the location; tap to view details and dismiss individual alerts.\n" +
                             "• Tap the Radar icon right beside the current temperature to open animated pan/zoom Doppler radar."
                     )
 
@@ -2718,7 +2920,7 @@ fun UserGuideDialog(
                     UserGuideSection(
                         title = "4. Quick-Add (+) Button & Default Task List",
                         content = "• Tap the '+' button in the top right (or inside a Month day pop-out) to open the New Entry dialog.\n" +
-                            "• Choose Task or Event. When adding a Task, pick which Google Task list to add to (pre-selected to your Default list, with a quick 'Set as default' toggle or in Settings → Google Account → Task Lists).\n" +
+                            "• Choose Task or Event — ${BuildConfig.APP_DISPLAY_NAME} remembers whichever one you picked last time. When adding a Task, pick which Google Task list to add to (pre-selected to your Default list, with a quick 'Set as default' toggle or in Settings → Google Account → Task Lists).\n" +
                             "• Events sync directly to your primary Google Calendar and Tasks sync directly to your chosen Google Task list."
                     )
 
@@ -2743,8 +2945,8 @@ fun UserGuideDialog(
 
                     UserGuideSection(
                         title = "8. Voice Assistant & Super ${BuildConfig.APP_DISPLAY_NAME} (Gemini AI)",
-                        content = "• On devices with a microphone and speakers, tap the outlined 'Speak' button to ask for time, weather, morning briefing, schedule/tasks, or control photos and radar using on-device speech — no API key needed.\n" +
-                            "• Add an optional Gemini API key in Settings (type it, send from your phone/laptop over Wi-Fi, or pick a key from Google Tasks) to unlock conversational AI, camera vision ('What am I holding?', 'Read this'), and the voice-managed Memory Book."
+                        content = "• On devices with a microphone, speakers, and on-device speech recognition, tap the outlined 'Speak' button to ask for time, weather, morning briefing, schedule/tasks, or control photos and radar — no API key needed. (If on-device speech recognition isn't available on your tablet, the microphone button stays hidden.)\n" +
+                            "• Add a free Gemini API key in Settings (follow the 3-step setup guide: visit aistudio.google.com/apikey on your phone/PC, tap 'Send from Phone/PC' to scan the QR code, and paste over Wi-Fi — or pick from Google Tasks) to unlock conversational AI, camera vision ('What am I holding?', 'Read this'), and the voice-managed Memory Book."
                     )
                 }
 

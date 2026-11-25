@@ -8,7 +8,7 @@
 
 ## 1. Overview & Architecture
 
-**Onnkiosk** is a standalone, native Android (Jetpack Compose) ambient smart dashboard and digital picture frame optimized for kitchen countertops and wall-mounted tablets (specifically target-tuned for 1280×800 landscape screens such as the Walmart Onn 8" Tablet / `ceres-b3`).
+**Onnkiosk** is a standalone, native Android (Jetpack Compose) ambient smart dashboard and digital picture frame designed for kitchen countertops and wall-mounted tablets (target-tuned for 1280×800 landscape screens such as the Walmart Onn 8" Tablet / `ceres-b3`, and automatically adaptive to portrait tablets such as 1200×1920 Fire Tablets).
 
 ### Key Principles
 1. **Direct API Integration**: Communicates directly with Google Cloud APIs (Calendar v3, Tasks v1, Photos Picker), optional Gemini API (`gemini-2.5-flash`), and RainViewer / Open-Meteo. No intermediate proxy servers.
@@ -72,25 +72,31 @@ Onnkiosk supports connecting your Google account directly using your own OAuth C
 ## 4. Dashboard Features & Daily Operation
 
 ### Left Wing: Informational Telemetry
-- **Clock, Weather & Next Event Header**: Top-aligned large high-contrast ambient clock & Day/Date (`EEE, MMM d`, scaled ~75% larger) with location underneath, real-time temperature, today's high/low/precip, and 4 larger upcoming forecast cards (day abbreviation + weather icon on the same line, no duplicate "Today" card). Tap the chevron icon to collapse weather into a compact `[icon temp° ▾]` badge or expand it again.
+- **Clock, Weather & Next Event Header**: Top-aligned single-line auto-fitting ambient clock & Day/Date (`EEE, MMM d`, dynamically sized to fit without wrapping) with location underneath, real-time temperature, today's high/low/precip, and 4 larger upcoming forecast cards (day abbreviation + weather icon on the same line, no duplicate "Today" card). Tap the chevron icon right beside the Radar button to collapse weather into a compact `[icon temp° ▾]` badge by the location, or tap that badge to expand it again.
 - **Interactive Weather Assessment**: Tap the current weather area or any future forecast card to open the detailed Weather Assessment modal with a plain-English summary, feels-like temps, precipitation expected, wind/gusts & direction, UV index, sunrise/sunset, hourly outlook, and quick links to **Open Radar** or **Read Aloud**.
-- **Dismissible NWS Weather Alerts**: Active alerts appear as a compact warning icon by the date; tap it to inspect full alert details and dismiss individual alerts.
-- **Doppler Radar Modal**: Tap the Radar icon right beside the current temperature to open the fullscreen interactive RainViewer/NEXRAD radar modal with zoom, pan, play/pause controls, and frame scrubber.
+- **Dismissible NWS Weather Alerts**: Active alerts appear as a compact warning icon by the location; tap it to inspect full alert details and dismiss individual alerts.
+- **Doppler Radar Modal**: Tap the Radar icon right beside the current temperature (to the left of the weather collapse button) to open the fullscreen interactive RainViewer/NEXRAD radar modal with zoom, pan, play/pause controls, and frame scrubber.
 - **Home Hub (Calendar & Google Tasks)**:
   - Tab selector for **All**, **Events (`Itinerary / 3-Day / Week / Month`) ▾**, and **Tasks** views.
   - Swipe left or right on **3-Day**, **Week**, or **Month** calendars to step backward/forward in time.
   - Multi-day all-day events consolidate cleanly into a single entry with a `Through YYYY-MM-DD` note, and all-day events stay pinned cleanly to the top of day views.
-  - **Month View Day Pop-out**: Tap any day in Month view to pop out a modal list of that day's events and tasks; tap **+ Add Task / Event** to schedule a Task (to a chosen or default Task list) or Event directly on that date, or tap any event in the pop-out to open full Event Details.
+  - **Month View Day Pop-out**: Tap any day in Month view to pop out a modal list of that day's events and tasks; tap **+ Add Task / Event** to schedule a Task (to a chosen or default Task list) or Event directly on that date (remembering your last chosen type), or tap any event in the pop-out to open full Event Details.
   - Tap any event to inspect location, organizer, attendees, and description.
   - Tap circular checkboxes to mark Google Tasks done (with strikethrough styling and automatic Google sync), filter individual task lists via the filter dropdown, and use the 5-second **Undo** bar after deleting an item.
-  - Tap the **+** button in the top-right to open the **New Entry** dialog and add a **Task** (picking which Google Task list or setting a Default) or **Event** directly to your Google account. You can also set your **Default** Google Task list under **Settings → Google Account → Task Lists**.
-  - **Calendar Primary Mode**: Tap the bottom-right collapse icon (`▸|`) on the photo bar (or toggle **Make Calendar Primary** in Settings) to expand Calendar & Tasks full-screen while preserving full date/time, weather, and forecast cards (with the same weather collapse toggle); tap the restore icon (`|◂`) in the exact same bottom-right corner to bring the photo carousel back.
+  - Tap the **+** button in the top-right to open the **New Entry** dialog and add a **Task** (picking which Google Task list or setting a Default) or **Event** directly to your Google account; the dialog remembers whether you last chose **Task** or **Event**. You can also set your **Default** Google Task list under **Settings → Google Account → Task Lists**.
+  - **Calendar Primary Mode**: Tap the bottom-right collapse icon (`▸|` in landscape, `▾` in portrait) on the photo bar (or toggle **Make Calendar Primary** in Settings) to expand Calendar & Tasks full-screen while preserving full date/time, weather, and forecast cards (with the same weather collapse toggle); tap the restore icon (`|◂` in landscape, `▴` in portrait) in the exact same bottom-right corner to bring the photo carousel back.
+
+### Adaptive Portrait Mode
+When held or mounted vertically (`height > width`), Onnkiosk automatically reorganizes into a full-width 3-tier vertical stack:
+1. **Top**: Unified Clock, Day/Date, Location, Weather Collapse, Utility Controls (`🎤` Speak, Memories, Eye, Night, Settings), and collapsible Current Weather + 4-day forecast cards.
+2. **Middle**: Full-width **Home Hub** (`All`, `Events`, `Tasks`, plus Itinerary / 3-Day / Week / Month views).
+3. **Bottom**: Full-width **Photo Carousel** with full space for `Album · Year` and all photo bar controls (hiding photos expands Home Hub cleanly down to the bottom).
 
 ### Right Wing: Lifestyle, Photos & Adaptive Smart Controls
 - **Streamlined Top Utility Bar**: Wider icon-only outlined **Speak** (`🎤`) button on the left of the right column (alongside **Memories** when active, plus **Account** and **Wi-Fi** during initial setup only); on the right edge from right to left: **Settings**, **Night**, and **Eye** (Camera Motion Wake, when a camera is detected). User Guide (`?`), Account, Wi-Fi, and manual Photo Refresh live cleanly inside **Settings** after initial setup.
-- **Voice Assistant (`🎤` button — visible when microphone & speakers are detected)**:
-  - **On-Device Speech (Zero API Key Needed)**: Tap `🎤` to ask for the time, date, weather/forecast, morning briefing, schedule, or active tasks; say *"Remind me to..."* or *"Add event..."* to add items; or say *"Open radar"*, *"Next photo"*, *"Star this photo"*, *"Fullscreen"*, *"Show calendar"*, or *"Dim screen"*.
-  - **"Super Onnkiosk" Gemini AI (Optional Gemini API Key in Settings)**: Add a Gemini API key in Settings — by typing/pasting, tapping **Send from Phone/PC** (scan the QR code or open the local Wi-Fi URL), or tapping **Pick from Google Tasks** to explicitly select a key you added to Tasks (which removes the task after import) — to unlock full conversational Q&A, multi-turn follow-up listening, live front-camera vision (*"What am I holding?"*, *"Read this recipe"*), and voice-managed **Memory Book** saving/searching.
+- **Voice Assistant (`🎤` button — visible when microphone, speakers, and on-device speech recognition are available)**:
+  - **On-Device Speech (Zero API Key Needed)**: Tap `🎤` to ask for the time, date, weather/forecast, morning briefing, schedule, or active tasks; say *"Remind me to..."* or *"Add event..."* to add items; or say *"Open radar"*, *"Next photo"*, *"Star this photo"*, *"Fullscreen"*, *"Show calendar"*, or *"Dim screen"*. On tablets where on-device speech recognition is unavailable, the microphone button and voice API key setup are automatically hidden.
+  - **"Super Onnkiosk" Gemini AI (Optional Gemini API Key in Settings)**: On speech-capable devices, Settings shows an easy 3-step guide to grab a free Gemini API key from `aistudio.google.com/apikey` and beam it over Wi-Fi using **Send from Phone/PC** (scan the QR code or open the local Wi-Fi URL — or pick a key from Google Tasks, or type/paste) to unlock full conversational Q&A, multi-turn follow-up listening, live front-camera vision (*"What am I holding?"*, *"Read this recipe"*), and voice-managed **Memory Book** saving/searching.
   - **Top Subtitles & Quick Answer Card**: Spoken interactions display live transcripts in a top overlay and detailed responses in a dismissible Quick Answer Card with a **Read Aloud / Stop** button.
 - **Morning Alarm, Night Mode, Camera Motion Wake & Idle Auto-Sleep**:
   - **Morning Alarm & Daily Brief (in Settings)**: Set a wake time, days of week, and Daily Brief timing (**When Silenced**, **At Alarm Time**, or **Chime Only**). When the alarm fires, it automatically ends Night Mode, wakes the screen, chimes, and offers **Snooze 5m** or **Silence & Start Day** (speaking your weather & schedule brief).
@@ -119,7 +125,7 @@ Onnkiosk supports connecting your Google account directly using your own OAuth C
   - **Checking Submissions (Maintainers)**: Run `gh issue list --repo derallo/onnkiosk-feedback` or `gh api /repos/derallo/onnkiosk-feedback/contents/feedback`.
 - **Automatic GitHub Release Checks**: Onnkiosk checks the GitHub repository (`derallo/onnkiosk`) for new releases periodically in the background.
 - **Update Modal**: When a newer release is published, an update chip appears. Tap **Update** to review changelog release notes, download the APK, and trigger the Android package installer directly.
-- **Log Inspection**: Tap **Settings** → **Diagnostics** to view token refresh status, memory usage, and background sync health.
+- **Log Inspection, Android Settings & Exiting to Home**: Tap **Settings** → **Diagnostics** to view token refresh status, memory usage, and background sync health. Tap **Android Settings** inside **Settings** to open the tablet's system & developer options, or tap the top-right power (**Exit**) button to close Onnkiosk and return to the Android Home launcher.
 
 ---
 

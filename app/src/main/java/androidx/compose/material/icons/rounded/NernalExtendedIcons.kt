@@ -2301,6 +2301,43 @@ val Icons.Rounded.Alarm: ImageVector
 
 private var _alarm: ImageVector? = null
 
+val Icons.Rounded.PowerSettingsNew: ImageVector
+    get() {
+        if (_powerSettingsNew != null) {
+            return _powerSettingsNew!!
+        }
+        _powerSettingsNew = materialIcon(name = "Rounded.PowerSettingsNew") {
+            materialPath {
+                moveTo(12.0f, 3.0f)
+                curveToRelative(-0.55f, 0.0f, -1.0f, 0.45f, -1.0f, 1.0f)
+                verticalLineToRelative(8.0f)
+                curveToRelative(0.0f, 0.55f, 0.45f, 1.0f, 1.0f, 1.0f)
+                reflectiveCurveToRelative(1.0f, -0.45f, 1.0f, -1.0f)
+                verticalLineTo(4.0f)
+                curveToRelative(0.0f, -0.55f, -0.45f, -1.0f, -1.0f, -1.0f)
+                close()
+                moveTo(17.14f, 5.86f)
+                curveToRelative(-0.39f, 0.39f, -0.38f, 1.0f, -0.01f, 1.39f)
+                curveToRelative(1.13f, 1.2f, 1.83f, 2.8f, 1.87f, 4.57f)
+                curveToRelative(0.09f, 3.83f, -3.08f, 7.13f, -6.91f, 7.17f)
+                curveToRelative(-3.92f, 0.05f, -7.09f, -3.1f, -7.09f, -7.0f)
+                curveToRelative(0.0f, -1.85f, 0.72f, -3.53f, 1.89f, -4.78f)
+                curveToRelative(0.37f, -0.39f, 0.36f, -1.0f, -0.02f, -1.38f)
+                curveToRelative(-0.4f, -0.4f, -1.05f, -0.39f, -1.43f, 0.02f)
+                curveTo(3.92f, 7.42f, 3.0f, 9.6f, 3.0f, 12.0f)
+                curveToRelative(0.0f, 5.05f, 4.16f, 9.13f, 9.25f, 9.0f)
+                curveToRelative(4.8f, -0.12f, 8.75f, -4.16f, 8.75f, -8.96f)
+                curveToRelative(0.0f, -2.41f, -0.96f, -4.6f, -2.51f, -6.21f)
+                curveToRelative(-0.38f, -0.39f, -0.97f, -0.36f, -1.35f, 0.03f)
+                close()
+            }
+        }
+        return _powerSettingsNew!!
+    }
+
+private var _powerSettingsNew: ImageVector? = null
+
+
 
 
 

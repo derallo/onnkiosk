@@ -2,7 +2,7 @@
 
 An ambient smart display and dashboard for Android tablets, featuring Google Calendar integration, Google Tasks checklist, Google Photos slideshow, weather, and animated live Doppler radar.
 
-Optimized for **landscape 1280×800** displays (such as the Walmart Onn 8" Tablet / `ceres-b3`).
+Optimized for **landscape 1280×800** displays (such as the Walmart Onn 8" Tablet / `ceres-b3`) and **adaptive portrait** tablets (such as 1200×1920 Fire Tablets).
 
 ---
 
@@ -10,9 +10,9 @@ Optimized for **landscape 1280×800** displays (such as the Walmart Onn 8" Table
 
 - **Device-Adaptive Hardware Detection**: Automatically detects camera, microphone, speakers, and on-device speech recognition — exposing voice assistant, audible alerts, and camera motion wake/sleep on capable tablets (such as Fire Tablets running LineageOS) while keeping headless frames clean.
 - **Google Calendar**: Day, 3-Day, Week, and Month views with horizontal swipe navigation, all-day events pinned cleanly at the top, and tappable Month day pop-outs (with `+ Add Task / Event` for that day).
-- **Google Tasks**: Interactive task checklist with completion toggles, due dates, per-list selection when adding tasks, configurable Default task list, and quick addition.
+- **Google Tasks**: Interactive task checklist with completion toggles, due dates, per-list selection when adding tasks, configurable Default task list, and quick addition that remembers whether you last chose Task or Event.
 - **Google Photos**: Auto-cycling photo slideshow with year filtering, album selection, full-screen mode, top-right `★` favorite badges, uniform 48dp control bar with `★ Only / ☆ Off` filtering, and bottom-right hide/restore toggle for full-screen Calendar mode.
-- **Weather & Doppler Radar**: Large top-aligned clock & date header (~75% larger), current temperature, collapsible 4-day future forecast cards (tappable for detailed daily & hourly Weather Assessments), dismissible NWS weather alerts, and live interactive RainViewer radar tile overlays with timeline scrubbing.
+- **Weather & Doppler Radar**: Single-line auto-fitting clock & date header, current temperature, collapsible 4-day future forecast cards (collapse toggle located right beside the Radar button; tappable for detailed daily & hourly Weather Assessments), dismissible NWS weather alerts, and live interactive RainViewer radar tile overlays with timeline scrubbing.
 - **Morning Alarm, Dual-Tier Voice Assistant, Night Mode & Camera Wake**:
   - **Morning Alarm & Daily Brief**: Configurable wake time and days of week that automatically exits Night Mode, chimes, and reads your morning weather & schedule brief (at alarm time or when silenced).
   - **Tier 1 (No API Key Required)**: Uses on-device speech recognition & Text-to-Speech for time, weather, morning briefings, calendar/tasks, adding reminders, and screen/photo controls, plus synthesized 4-note chimes and spoken event alerts.
@@ -33,7 +33,7 @@ Onnkiosk automatically inspects the tablet's hardware at launch (`DeviceCapabili
 | **Base Tablet** *(Display + Wi-Fi only, e.g. Walmart Onn 8" / `ceres-b3`)* | Full ambient dashboard: top-aligned Clock & Date, Weather + collapsible 4-day forecast + dismissible NWS alerts + Doppler Radar, Google Calendar (Itinerary / 3-Day / Week / Month with swipe & day pop-outs), Google Tasks, Google Photos slideshow (`★ Only / ☆ Off`, fullscreen, year/album filters), Night Mode, and QR-code companion sign-in. |
 | **+ Speakers** | **Audible Event Alerts** (warm 4-note chime + spoken announcement 1–5 min before events), **Morning Alarm & Daily Brief** (wakes Night Mode, chimes, and reads weather & schedule), and **Read Aloud** on Event Details and Memory Book entries. |
 | **+ Front Camera** | **Camera Motion Wake** (`👁` toggle) + **Auto-Sleep After Inactivity** (`Off`, `5m`, `10m`, `15m`, `30m`) — dims when idle and wakes hands-free when someone walks up (manual Night Mode stays dark until tapped or woken by Morning Alarm). |
-| **+ Microphone & Speakers** | Outlined **`🎤` Voice Assistant** button — **Tier 1 on-device speech works out of the box with zero API key**: ask for time, date, weather, morning briefing, schedule/tasks, add reminders/events, or control radar, photos, and screen dimming. |
+| **+ Microphone, Speakers & On-Device Speech** | Outlined **`🎤` Voice Assistant** button — **Tier 1 on-device speech works out of the box with zero API key**: ask for time, date, weather, morning briefing, schedule/tasks, add reminders/events, or control radar, photos, and screen dimming, plus an easy 3-step guide in Settings to port a Gemini API key from your phone/PC. (Hidden on devices without on-device speech recognition.) |
 
 ---
 
@@ -49,8 +49,8 @@ Onnkiosk is **100% functional with no AI key**. If you choose to add an optional
 
 ## Hardware Optimization
 
-- **Target Device**: Walmart Onn 8" Tablet (`ceres-b3`, 1280×800) or any Android 13+ (API 33+) tablet (such as Fire Tablets running LineageOS, 1920×1200) in landscape mode.
-- **Orientation**: Locked in landscape orientation.
+- **Target Device**: Walmart Onn 8" Tablet (`ceres-b3`, 1280×800) or any Android 13+ (API 33+) tablet (such as Fire Tablets running LineageOS, 1920×1200) in either landscape or portrait mode.
+- **Orientation**: Adaptive (`fullUser`) — renders a 2-column dashboard in landscape and a full-width vertical stack (Unified Header + Weather on top, Home Hub in the middle, Photo Carousel on the bottom) in portrait.
 - **Display**: High-contrast pure-black dark theme designed for ambient wall-mount or countertop kitchen/living room kiosks.
 
 ---

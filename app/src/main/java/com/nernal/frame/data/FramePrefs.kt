@@ -646,6 +646,15 @@ class FramePrefs(context: Context) {
         prefs.edit { putBoolean(KEY_CALENDAR_PRIMARY_MODE, enabled) }
     }
 
+    fun loadLastAddCategory(): ReminderCategory {
+        val raw = prefs.getString(KEY_LAST_ADD_CATEGORY, null) ?: return ReminderCategory.TASK
+        return runCatching { ReminderCategory.valueOf(raw) }.getOrDefault(ReminderCategory.TASK)
+    }
+
+    fun saveLastAddCategory(category: ReminderCategory) {
+        prefs.edit { putString(KEY_LAST_ADD_CATEGORY, category.name) }
+    }
+
     fun loadWeatherCollapsed(): Boolean =
         prefs.getBoolean(KEY_WEATHER_COLLAPSED, false)
 
@@ -745,6 +754,7 @@ class FramePrefs(context: Context) {
         private const val KEY_WAKE_ON_EVENT_REMINDER = "wake_on_event_reminder_v1"
         private const val KEY_CALENDAR_VIEW_MODE = "calendar_view_mode_v1"
         private const val KEY_CALENDAR_PRIMARY_MODE = "calendar_primary_mode_v1"
+        private const val KEY_LAST_ADD_CATEGORY = "last_add_category_v1"
         private const val KEY_WEATHER_COLLAPSED = "weather_collapsed_v1"
         private const val KEY_DISMISSED_ALERT_KEYS = "dismissed_alert_keys_v1"
         private const val KEY_ALARM_CONFIG = "alarm_config_v1"

@@ -19,6 +19,7 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -71,6 +72,7 @@ import com.nernal.frame.ui.DimOverlay
 import com.nernal.frame.ui.DopplerRadarModal
 import com.nernal.frame.ui.EventDetailsDialog
 import com.nernal.frame.ui.FeedbackDialog
+import com.nernal.frame.ui.FullWidthTopHeaderCard
 import com.nernal.frame.ui.FullscreenSlideshowOverlay
 import com.nernal.frame.ui.GoogleAccountDialog
 import com.nernal.frame.ui.InAppOAuthWebViewDialog
@@ -79,12 +81,14 @@ import com.nernal.frame.ui.LifestyleWing
 import com.nernal.frame.ui.MemoryBookDialog
 import com.nernal.frame.ui.NernalColors
 import com.nernal.frame.ui.NernalTheme
+import com.nernal.frame.ui.OmniHubCard
 import com.nernal.frame.ui.PiSyncDialog
 import com.nernal.frame.ui.QuickAnswerCardOverlay
 import com.nernal.frame.ui.SettingsDialog
 import com.nernal.frame.ui.UserGuideDialog
 import com.nernal.frame.ui.VoiceSubtitlesOverlay
 import com.nernal.frame.ui.WeatherDetailDialog
+import com.nernal.frame.ui.exitAppToHome
 import com.nernal.frame.ui.openDeviceWifiSettings
 import java.time.ZoneId
 
@@ -171,7 +175,7 @@ private fun NernalFrameRoot(
             ) {
                 add(Manifest.permission.CAMERA)
             }
-            if (state.capabilities.hasMicrophone &&
+            if (state.capabilities.hasVoiceInputAndOutput &&
                 ContextCompat.checkSelfPermission(context, Manifest.permission.RECORD_AUDIO) != PackageManager.PERMISSION_GRANTED
             ) {
                 add(Manifest.permission.RECORD_AUDIO)
@@ -248,11 +252,13 @@ private fun NernalFrameRoot(
         selectNextUpcomingEvent(state.reminders, state.todayKey, nowMinutes)
     }
 
-    Box(
+    BoxWithConstraints(
         modifier = Modifier
             .fillMaxSize()
             .background(NernalColors.Bg)
     ) {
+        val isPortrait = maxHeight > maxWidth
+
         if (state.calendarPrimaryMode) {
             CalendarPrimaryWing(
                 state = state,
@@ -271,6 +277,8 @@ private fun NernalFrameRoot(
                         explicitSourceId = taskListId,
                     )
                 },
+                lastAddCategory = state.lastAddCategory,
+                onSelectAddCategory = viewModel::setLastAddCategory,
                 onToggleReminder = viewModel::toggleReminder,
                 onDeleteReminder = viewModel::deleteReminder,
                 onEventClick = viewModel::setSelectedEventDetail,
@@ -284,8 +292,92 @@ private fun NernalFrameRoot(
                 onDimScreen = { viewModel.setNightMode(true) },
                 onOpenWifiSettings = { openDeviceWifiSettings(context) },
                 onToggleCalendarPrimary = viewModel::setCalendarPrimaryMode,
+                isPortrait = isPortrait,
                 modifier = Modifier.fillMaxSize(),
             )
+        } else if (isPortrait) {
+            Column(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .padding(12.dp),
+                verticalArrangement = Arrangement.spacedBy(10.dp),
+            ) {
+                FullWidthTopHeaderCard(
+                    state = state,
+                    onOpenRadar = viewModel::openRadarModal,
+                    onWeatherDayClick = viewModel::setSelectedWeatherDay,
+                    onDismissWeatherAlert = viewModel::dismissWeatherAlert,
+                    onToggleWeatherCollapsed = viewModel::toggleWeatherCollapsed,
+                    onOpenSettings = { viewModel.setShowSettingsDialog(true) },
+                    onOpenAccount = { viewModel.setShowAccountDialog(true) },
+                    onOpenPiSync = { viewModel.setShowPiSyncDialog(true) },
+                    onSpeakClick = viewModel::onSpeakButtonClicked,
+                    onToggleCameraWake = { viewModel.setCameraMotionWakeEnabled(!state.cameraMotionWakeEnabled) },
+                    onOpenMemories = { viewModel.setShowMemoryDialog(true) },
+                    onDimScreen = { viewModel.setNightMode(true) },
+                    onOpenWifiSettings = { openDeviceWifiSettings(context) },
+                    isPortrait = true,
+                    modifier = Modifier.fillMaxWidth(),
+                )
+
+                OmniHubCard(
+                    reminders = state.reminders,
+                    activeFilter = state.hubFilter,
+                    calendarViewMode = state.calendarViewMode,
+                    todayKey = state.todayKey,
+                    availableTaskLists = state.availableTaskLists,
+                    selectedTaskListIds = state.selectedTaskListIds,
+                    defaultTaskListId = state.defaultTaskListId,
+                    activeTaskListFilters = state.activeTaskListFilters,
+                    availableCalendars = state.availableCalendars,
+                    onToggleActiveTaskListFilter = viewModel::toggleActiveTaskListFilter,
+                    onSetDefaultTaskList = viewModel::setDefaultTaskList,
+                    onFilterChange = viewModel::setHubFilter,
+                    onCalendarViewModeChange = viewModel::setCalendarViewMode,
+                    onAddReminder = { text, cat, dateKey, taskListId ->
+                        viewModel.addReminder(
+                            text = text,
+                            category = cat,
+                            explicitDateKey = dateKey,
+                            explicitSourceId = taskListId,
+                        )
+                    },
+                    lastAddCategory = state.lastAddCategory,
+                    onSelectAddCategory = viewModel::setLastAddCategory,
+                    onToggleReminder = viewModel::toggleReminder,
+                    onDeleteReminder = viewModel::deleteReminder,
+                    onEventClick = viewModel::setSelectedEventDetail,
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .weight(0.54f),
+                )
+
+                LifestyleWing(
+                    state = state,
+                    onPreviousPhoto = viewModel::previousPhoto,
+                    onNextPhoto = viewModel::nextPhoto,
+                    onToggleAutoAdvance = viewModel::toggleAutoAdvance,
+                    onToggleStar = viewModel::toggleCurrentStarred,
+                    onToggleFavoritesFilter = viewModel::toggleFavoritesOnly,
+                    onResetFilters = viewModel::resetPhotoFilters,
+                    onRefreshAlbums = viewModel::refreshOrReshufflePhotos,
+                    onOpenSettings = { viewModel.setShowSettingsDialog(true) },
+                    onOpenAccount = { viewModel.setShowAccountDialog(true) },
+                    onOpenPiSync = { viewModel.setShowPiSyncDialog(true) },
+                    onSpeakClick = viewModel::onSpeakButtonClicked,
+                    onToggleCameraWake = { viewModel.setCameraMotionWakeEnabled(!state.cameraMotionWakeEnabled) },
+                    onOpenMemories = { viewModel.setShowMemoryDialog(true) },
+                    onEnterFullscreen = { viewModel.setFullscreen(true) },
+                    onDimScreen = { viewModel.setNightMode(true) },
+                    onInspectPhoto = { viewModel.inspectPhotoTemporary(10) },
+                    onToggleCalendarPrimary = viewModel::setCalendarPrimaryMode,
+                    showTopUtilityBar = false,
+                    isPortrait = true,
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .weight(0.46f),
+                )
+            }
         } else {
             Row(
                 modifier = Modifier
@@ -310,6 +402,8 @@ private fun NernalFrameRoot(
                             explicitSourceId = taskListId,
                         )
                     },
+                    lastAddCategory = state.lastAddCategory,
+                    onSelectAddCategory = viewModel::setLastAddCategory,
                     onToggleReminder = viewModel::toggleReminder,
                     onDeleteReminder = viewModel::deleteReminder,
                     onEventClick = viewModel::setSelectedEventDetail,
@@ -425,6 +519,10 @@ private fun NernalFrameRoot(
                 onCheckForUpdates = { viewModel.checkForUpdates(manual = true) },
                 onInstallUpdate = { viewModel.downloadAndInstallUpdate(context) },
                 onResetFilters = viewModel::resetPhotoFilters,
+                onExitApp = {
+                    viewModel.setShowSettingsDialog(false)
+                    exitAppToHome(context)
+                },
                 onDismiss = { viewModel.setShowSettingsDialog(false) },
             )
         }

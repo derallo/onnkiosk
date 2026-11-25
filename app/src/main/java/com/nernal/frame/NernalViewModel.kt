@@ -177,6 +177,7 @@ data class NernalUiState(
     val recentlyDeletedReminder: ReminderItem? = null,
     val calendarViewMode: CalendarViewMode = CalendarViewMode.ITINERARY,
     val calendarPrimaryMode: Boolean = false,
+    val lastAddCategory: ReminderCategory = ReminderCategory.TASK,
     val updateRelease: AppReleaseInfo? = null,
     val isCheckingForUpdate: Boolean = false,
     val isDownloadingUpdate: Boolean = false,
@@ -294,6 +295,7 @@ class NernalViewModel(application: Application) : AndroidViewModel(application) 
                 globalBrightness = prefs.loadGlobalBrightness(),
                 calendarViewMode = prefs.loadCalendarViewMode(),
                 calendarPrimaryMode = prefs.loadCalendarPrimaryMode(),
+                lastAddCategory = prefs.loadLastAddCategory(),
                 hubFilter = if (prefs.loadCalendarPrimaryMode()) HubFilter.EVENTS else HubFilter.ALL,
             )
         }
@@ -2433,6 +2435,11 @@ class NernalViewModel(application: Application) : AndroidViewModel(application) 
     fun setCalendarViewMode(mode: CalendarViewMode) {
         prefs.saveCalendarViewMode(mode)
         _uiState.update { it.copy(calendarViewMode = mode) }
+    }
+
+    fun setLastAddCategory(category: ReminderCategory) {
+        prefs.saveLastAddCategory(category)
+        _uiState.update { it.copy(lastAddCategory = category) }
     }
 
     fun setCalendarPrimaryMode(enabled: Boolean) {
