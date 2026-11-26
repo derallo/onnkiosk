@@ -10,8 +10,7 @@ import android.speech.SpeechRecognizer
 import com.nernal.frame.data.DeviceCapabilities
 
 object DeviceCapabilitiesDetector {
-    private val MIC_TYPES = setOf(
-        AudioDeviceInfo.TYPE_BUILTIN_MIC,
+    private val EXTERNAL_MIC_TYPES = setOf(
         AudioDeviceInfo.TYPE_USB_DEVICE,
         AudioDeviceInfo.TYPE_USB_HEADSET,
         AudioDeviceInfo.TYPE_WIRED_HEADSET,
@@ -41,8 +40,10 @@ object DeviceCapabilitiesDetector {
             audioManager?.getDevices(AudioManager.GET_DEVICES_OUTPUTS).orEmpty()
         }.getOrDefault(emptyArray())
 
+        // Only trust a built-in mic when Android declares FEATURE_MICROPHONE (some Allwinner
+        // picture frames expose a dummy TYPE_BUILTIN_MIC on an unwired codec pin).
         val hasMicrophone = pm.hasSystemFeature(PackageManager.FEATURE_MICROPHONE) ||
-            inputDevices.any { it.type in MIC_TYPES }
+            inputDevices.any { it.type in EXTERNAL_MIC_TYPES }
 
         val hasAudioOutput = (pm.hasSystemFeature(PackageManager.FEATURE_AUDIO_OUTPUT) &&
             outputDevices.any { it.type in SPEAKER_TYPES }) ||

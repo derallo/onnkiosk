@@ -43,6 +43,7 @@ import androidx.compose.material.icons.rounded.BrokenImage
 import androidx.compose.material.icons.rounded.CameraAlt
 import androidx.compose.material.icons.rounded.ChevronLeft
 import androidx.compose.material.icons.rounded.ChevronRight
+import androidx.compose.material.icons.rounded.Close
 import androidx.compose.material.icons.rounded.DeleteOutline
 import androidx.compose.material.icons.rounded.Email
 import androidx.compose.material.icons.rounded.Event
@@ -1556,29 +1557,45 @@ fun SettingsDialog(
                         )
                     }
 
-                    Surface(
-                        onClick = onExitApp,
-                        color = NernalColors.CardInner,
-                        shape = RoundedCornerShape(12.dp),
-                        border = BorderStroke(1.dp, NernalColors.Rose.copy(alpha = 0.65f)),
-                        modifier = Modifier.height(48.dp),
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(8.dp),
                     ) {
-                        Row(
-                            modifier = Modifier.padding(horizontal = 12.dp),
-                            verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.spacedBy(6.dp),
+                        Surface(
+                            onClick = onExitApp,
+                            color = NernalColors.CardInner,
+                            shape = RoundedCornerShape(12.dp),
+                            border = BorderStroke(1.dp, NernalColors.Rose.copy(alpha = 0.65f)),
+                            modifier = Modifier.height(48.dp),
+                        ) {
+                            Row(
+                                modifier = Modifier.padding(horizontal = 12.dp),
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.spacedBy(6.dp),
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Rounded.PowerSettingsNew,
+                                    contentDescription = "Exit App & Go Home",
+                                    tint = NernalColors.Rose,
+                                    modifier = Modifier.size(20.dp),
+                                )
+                                Text(
+                                    text = "Exit App",
+                                    color = NernalColors.Rose,
+                                    fontSize = 14.sp,
+                                    fontWeight = FontWeight.Bold,
+                                )
+                            }
+                        }
+                        IconButton(
+                            onClick = onDismiss,
+                            modifier = Modifier.size(48.dp),
                         ) {
                             Icon(
-                                imageVector = Icons.Rounded.PowerSettingsNew,
-                                contentDescription = "Close App & Go Home",
-                                tint = NernalColors.Rose,
-                                modifier = Modifier.size(20.dp),
-                            )
-                            Text(
-                                text = "Exit",
-                                color = NernalColors.Rose,
-                                fontSize = 14.sp,
-                                fontWeight = FontWeight.Bold,
+                                imageVector = Icons.Rounded.Close,
+                                contentDescription = "Close Settings",
+                                tint = NernalColors.Ink,
+                                modifier = Modifier.size(24.dp),
                             )
                         }
                     }
@@ -1907,7 +1924,7 @@ fun SettingsDialog(
                         }
                     }
 
-                    if (state.capabilities.hasVoiceInputAndOutput) {
+                    run {
                         var draftGeminiKey by remember(state.geminiApiKey) { mutableStateOf(state.geminiApiKey) }
                         var showKey by remember { mutableStateOf(false) }
                         var showKeyGuide by remember(state.geminiApiKey.isBlank()) { mutableStateOf(state.geminiApiKey.isBlank()) }
@@ -1959,7 +1976,11 @@ fun SettingsDialog(
                                     }
                                 }
                                 Text(
-                                    text = "On-device speech already handles time, weather, schedule, tasks, and screen controls. Add your free Gemini API key for conversational AI, camera vision (\"What am I holding?\"), and Memory Book recipes.",
+                                    text = if (state.capabilities.hasVoiceInputAndOutput) {
+                                        "On-device speech already handles time, weather, schedule, tasks, and screen controls. Add your free Gemini API key for conversational AI, camera vision (\"What am I holding?\"), and Memory Book recipes."
+                                    } else {
+                                        "Add your free Gemini API key here (use \"Send from Phone/PC\" to beam it over Wi-Fi). Note: the Speak mic button appears automatically on devices with a working microphone and Android speech recognition."
+                                    },
                                     color = NernalColors.InkMuted,
                                     fontSize = 12.sp,
                                     lineHeight = 17.sp,
