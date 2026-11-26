@@ -849,6 +849,8 @@ private fun NernalFrameRoot(
                 cameraWakeActive = state.capabilities.hasCamera && state.cameraMotionWakeEnabled,
                 isManualNightMode = state.isManualNightMode,
                 alarmConfig = state.alarmConfig,
+                alarmSnoozeUntilMs = state.alarmSnoozeUntilMs,
+                timezoneId = state.userLocation.timezone,
                 onWake = { viewModel.setDimmed(false) },
             )
         }
@@ -858,7 +860,7 @@ private fun NernalFrameRoot(
                 time = state.clockTime,
                 amPm = state.clockAmPm,
                 label = state.alarmConfig.label,
-                speakBriefOnDismiss = state.capabilities.hasAudioOutput && state.alarmConfig.speakBriefTiming == AlarmBriefTiming.ON_DISMISS,
+                speakBriefOnDismiss = state.canSpeakAloud && state.alarmConfig.speakBriefTiming == AlarmBriefTiming.ON_DISMISS,
                 onSnooze = { viewModel.snoozeActiveAlarm(5) },
                 onDismiss = viewModel::dismissActiveAlarm,
             )

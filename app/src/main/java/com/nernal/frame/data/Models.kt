@@ -87,6 +87,24 @@ data class AlarmConfig(
             }
             return "$hour12:${minute.toString().padStart(2, '0')} $amPm"
         }
+
+    fun nextOccurrenceLabel(now: java.time.ZonedDateTime): String? {
+        if (!enabled || daysOfWeek.isEmpty()) return null
+        val alarmMinutes = hour24 * 60 + minute
+        val nowMinutes = now.hour * 60 + now.minute
+        for (offset in 0..7) {
+            val candidate = now.plusDays(offset.toLong())
+            if (candidate.dayOfWeek.value !in daysOfWeek) continue
+            if (offset == 0 && alarmMinutes <= nowMinutes) continue
+            val dayPrefix = when (offset) {
+                0 -> "Today"
+                1 -> "Tomorrow"
+                else -> candidate.dayOfWeek.getDisplayName(java.time.format.TextStyle.SHORT, java.util.Locale.US)
+            }
+            return "$dayPrefix · $formattedTime"
+        }
+        return formattedTime
+    }
 }
 
 data class WeatherData(

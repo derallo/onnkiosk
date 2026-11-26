@@ -735,7 +735,7 @@ class FramePrefs(context: Context) {
         const val DEFAULT_SLIDE_INTERVAL_SEC = 10
         const val DEFAULT_DIM_BRIGHTNESS = 0.16f
         const val DEFAULT_GLOBAL_BRIGHTNESS = 0.85f
-        const val DEFAULT_AUTO_SLEEP_MINUTES = 10
+        const val DEFAULT_AUTO_SLEEP_MINUTES = 0
 
         private const val KEY_PI_SYNC_ENABLED = "pi_sync_enabled_v1"
         private const val KEY_PI_BASE_URL = "pi_base_url_v1"

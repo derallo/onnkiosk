@@ -825,4 +825,21 @@ class NernalParserTest {
         assertEquals(0, rawFallback.dataOffset)
         assertEquals(32, rawFallback.dataLength)
     }
+
+    @Test
+    fun alarmNextOccurrenceLabelFormatsTodayTomorrowAndWeekday() {
+        val wedEvening = java.time.ZonedDateTime.of(2026, 11, 25, 20, 30, 0, 0, ZoneId.of("America/New_York")) // Wednesday = 3
+
+        val disabled = com.nernal.frame.data.AlarmConfig(enabled = false, hour24 = 7, minute = 0)
+        assertNull(disabled.nextOccurrenceLabel(wedEvening))
+
+        val laterToday = com.nernal.frame.data.AlarmConfig(enabled = true, hour24 = 21, minute = 15, daysOfWeek = setOf(3))
+        assertEquals("Today · 9:15 PM", laterToday.nextOccurrenceLabel(wedEvening))
+
+        val tomorrowMorning = com.nernal.frame.data.AlarmConfig(enabled = true, hour24 = 7, minute = 0, daysOfWeek = setOf(1, 2, 3, 4, 5, 6, 7))
+        assertEquals("Tomorrow · 7:00 AM", tomorrowMorning.nextOccurrenceLabel(wedEvening))
+
+        val fridayOnly = com.nernal.frame.data.AlarmConfig(enabled = true, hour24 = 6, minute = 30, daysOfWeek = setOf(5))
+        assertEquals("Fri · 6:30 AM", fridayOnly.nextOccurrenceLabel(wedEvening))
+    }
 }

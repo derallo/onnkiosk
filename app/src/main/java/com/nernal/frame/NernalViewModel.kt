@@ -314,7 +314,7 @@ class NernalViewModel(application: Application) : AndroidViewModel(application) 
         startWeatherLoop()
         startInitialLoadAndSyncLoops()
         startSlideshowLoop()
-        startIdleSleepLoop()
+        // Auto-sleep on inactivity is intentionally disabled: Night Mode is only entered when tapped.
         if (!BuildConfig.IS_NERNAL_FAMILY_BUILD) {
             startUpdateCheckLoop()
         }
@@ -954,26 +954,6 @@ class NernalViewModel(application: Application) : AndroidViewModel(application) 
         (local + pi)
             .distinctBy { it.id }
             .sortedByDescending { it.updatedAtMs }
-
-    private fun startIdleSleepLoop() {
-        viewModelScope.launch {
-            while (isActive) {
-                delay(15_000L)
-                val s = _uiState.value
-                val mins = s.autoSleepMinutes
-                if (mins <= 0 || s.isDimmed) continue
-                if (s.voiceState != VoiceAssistantState.IDLE) continue
-                if (s.showSettingsDialog || s.showAccountDialog || s.showHelpDialog ||
-                    s.showFeedbackDialog || s.showRadarModal || s.showPiSyncDialog ||
-                    s.showMemoryDialog || s.selectedWeatherDayIso != null
-                ) continue
-                val elapsedMs = System.currentTimeMillis() - lastUserActivityMs
-                if (elapsedMs >= mins * 60_000L) {
-                    setDimmed(true)
-                }
-            }
-        }
-    }
 
     private fun currentZoneId(): ZoneId =
         runCatching { ZoneId.of(_uiState.value.userLocation.timezone) }

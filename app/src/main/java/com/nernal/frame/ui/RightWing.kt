@@ -1346,6 +1346,8 @@ fun DimOverlay(
     cameraWakeActive: Boolean = false,
     isManualNightMode: Boolean = false,
     alarmConfig: AlarmConfig = AlarmConfig(),
+    alarmSnoozeUntilMs: Long? = null,
+    timezoneId: String = "America/New_York",
     onWake: () -> Unit,
 ) {
     // Pure opaque solid black night veil so background dashboard cards do not bleed through
@@ -1443,6 +1445,67 @@ fun DimOverlay(
                     )
                 }
 
+                val snoozeLabel = remember(alarmSnoozeUntilMs, time, timezoneId) {
+                    val until = alarmSnoozeUntilMs ?: return@remember null
+                    if (until <= System.currentTimeMillis()) return@remember null
+                    val zone = runCatching { java.time.ZoneId.of(timezoneId) }.getOrElse { java.time.ZoneId.systemDefault() }
+                    val fmt = java.time.format.DateTimeFormatter.ofPattern("h:mm a", java.util.Locale.US)
+                    java.time.Instant.ofEpochMilli(until).atZone(zone).format(fmt)
+                }
+                val nextAlarmText = remember(alarmConfig, time, amPm, todayKey, timezoneId) {
+                    if (!alarmConfig.enabled) return@remember null
+                    val zone = runCatching { java.time.ZoneId.of(timezoneId) }.getOrElse { java.time.ZoneId.systemDefault() }
+                    alarmConfig.nextOccurrenceLabel(java.time.ZonedDateTime.now(zone))
+                }
+                if (snoozeLabel != null || nextAlarmText != null) {
+                    Surface(
+                        color = NernalColors.CardInner,
+                        shape = RoundedCornerShape(14.dp),
+                        border = BorderStroke(1.5.dp, NernalColors.Gold.copy(alpha = 0.65f)),
+                    ) {
+                        Row(
+                            modifier = Modifier.padding(horizontal = 18.dp, vertical = 12.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(12.dp),
+                        ) {
+                            Icon(
+                                imageVector = Icons.Rounded.Alarm,
+                                contentDescription = null,
+                                tint = NernalColors.Gold,
+                                modifier = Modifier.size(24.dp),
+                            )
+                            Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                                Text(
+                                    text = if (snoozeLabel != null) "ALARM SNOOZED" else "ALARM COMING UP",
+                                    color = NernalColors.Gold,
+                                    fontSize = 12.sp,
+                                    fontWeight = FontWeight.Bold,
+                                )
+                                Text(
+                                    text = snoozeLabel?.let { "Rings at $it" } ?: nextAlarmText!!,
+                                    color = NernalColors.Ink,
+                                    fontSize = 20.sp,
+                                    fontWeight = FontWeight.Bold,
+                                )
+                                val subtitle = buildString {
+                                    if (alarmConfig.label.isNotBlank()) append(alarmConfig.label)
+                                    if (alarmConfig.speakBriefTiming != AlarmBriefTiming.OFF) {
+                                        if (isNotEmpty()) append(" · ")
+                                        append("Daily Brief ${alarmConfig.speakBriefTiming.label.lowercase()}")
+                                    }
+                                }
+                                if (subtitle.isNotBlank()) {
+                                    Text(
+                                        text = subtitle,
+                                        color = NernalColors.InkMuted,
+                                        fontSize = 12.sp,
+                                    )
+                                }
+                            }
+                        }
+                    }
+                }
+
                 Spacer(modifier = Modifier.height(4.dp))
                 Text(
                     text = when {
@@ -1453,33 +1516,6 @@ fun DimOverlay(
                     color = NernalColors.InkMuted.copy(alpha = 0.72f),
                     fontSize = 13.sp,
                 )
-
-                if (alarmConfig.enabled) {
-                    Surface(
-                        color = NernalColors.CardInner,
-                        shape = RoundedCornerShape(10.dp),
-                        border = BorderStroke(1.dp, NernalColors.Gold.copy(alpha = 0.45f)),
-                    ) {
-                        Row(
-                            modifier = Modifier.padding(horizontal = 12.dp, vertical = 6.dp),
-                            verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.spacedBy(6.dp),
-                        ) {
-                            Icon(
-                                imageVector = Icons.Rounded.Alarm,
-                                contentDescription = null,
-                                tint = NernalColors.Gold,
-                                modifier = Modifier.size(16.dp),
-                            )
-                            Text(
-                                text = "Alarm set for ${alarmConfig.formattedTime}",
-                                color = NernalColors.Gold,
-                                fontSize = 13.sp,
-                                fontWeight = FontWeight.SemiBold,
-                            )
-                        }
-                    }
-                }
             }
         }
     }
@@ -1847,27 +1883,6 @@ fun SettingsDialog(
                                     uncheckedTrackColor = NernalColors.CardSubtle,
                                 ),
                             )
-                        }
-
-                        Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
-                            Text(
-                                text = "Auto-Sleep After Inactivity",
-                                color = NernalColors.Ink,
-                                fontSize = 13.sp,
-                                fontWeight = FontWeight.SemiBold,
-                            )
-                            Row(
-                                modifier = Modifier.horizontalScroll(rememberScrollState()),
-                                horizontalArrangement = Arrangement.spacedBy(8.dp),
-                            ) {
-                                for (mins in listOf(0, 5, 10, 15, 30)) {
-                                    SettingChip(
-                                        label = if (mins == 0) "Off" else "${mins}m",
-                                        selected = state.autoSleepMinutes == mins,
-                                        onClick = { onAutoSleepMinutesChange(mins) },
-                                    )
-                                }
-                            }
                         }
                     }
 
@@ -3000,9 +3015,9 @@ fun UserGuideDialog(
                     )
 
                     UserGuideSection(
-                        title = "7. Night Mode, Camera Motion Wake & Event Alerts",
-                        content = "• Tap the Moon icon (Night Mode) in the top right for pure black ambient night mode — Night Mode stays on until you tap the screen to turn it off.\n" +
-                            "• On devices with a front camera, Auto-Sleep dims after inactivity and the Eye icon wakes the screen hands-free when someone walks up.\n" +
+                        title = "7. Night Mode, Alarms & Event Alerts",
+                        content = "• Tap the Moon icon (Night Mode) in the top right for pure black ambient night mode — the display never goes to sleep automatically and stays in Night Mode until you tap the screen or your Morning Alarm fires.\n" +
+                            "• When a Morning Alarm is set (or snoozed), Night Mode prominently shows your upcoming alarm right on the sleep screen.\n" +
                             "• 'Wake on Event Reminder' alerts 1–5 minutes before a scheduled event and plays a chime + spoken announcement on devices with speakers."
                     )
 
