@@ -491,6 +491,7 @@ private fun NernalFrameRoot(
                 onPrev = viewModel::previousPhoto,
                 onNext = viewModel::nextPhoto,
                 onToggleStar = viewModel::toggleCurrentStarred,
+                onDimScreen = { viewModel.setNightMode(true) },
                 onShowAll = viewModel::resetPhotoFilters,
                 onRetry = viewModel::refreshOrReshufflePhotos,
                 onOpenAccount = {

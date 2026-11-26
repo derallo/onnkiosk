@@ -1147,6 +1147,7 @@ fun FullscreenSlideshowOverlay(
     onPrev: () -> Unit,
     onNext: () -> Unit,
     onToggleStar: () -> Unit,
+    onDimScreen: () -> Unit = {},
     onShowAll: () -> Unit = {},
     onRetry: () -> Unit = {},
     onOpenAccount: () -> Unit = {},
@@ -1319,6 +1320,9 @@ fun FullscreenSlideshowOverlay(
                 }
                 IconButton(onClick = onNext, modifier = Modifier.size(54.dp)) {
                     Icon(Icons.Rounded.ChevronRight, "Next", tint = NernalColors.Ink, modifier = Modifier.size(30.dp))
+                }
+                IconButton(onClick = onDimScreen, modifier = Modifier.size(54.dp)) {
+                    Icon(Icons.Rounded.Bedtime, "Dim screen", tint = NernalColors.InkMuted, modifier = Modifier.size(24.dp))
                 }
                 Spacer(modifier = Modifier.width(6.dp))
                 Button(

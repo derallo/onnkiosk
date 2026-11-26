@@ -109,7 +109,7 @@ When held or mounted vertically (`height > width`), Onnkiosk automatically reorg
   - Automatically rotates photos at configurable intervals (`5s`, `10s`, `15s`, `20s`, `30s`, `60s`), with swipe left/right navigation and tap-to-inspect fullscreen for 10 seconds. Starred photos show a subtle top-right `★` badge.
   - **Multi-Year & Album Filters**: Filter photos across specific years or all years in Settings, or filter by album.
   - **Bottom Control Bar (left to right)**: Uniform 48dp buttons for **Prev (`<`)**, **Pause/Play (`⏸/▶`)**, **Fullscreen (`⛶`)**, and **Next (`>`)** on the left, with **Star filter (`★ Only / ☆ Off`)**, **Favorite (`★`)**, and **Hide (`▸|`)** on the right (no Album · Year label clutter).
-  - **Fullscreen Slideshow Mode**: Tap the fullscreen expansion icon in the bottom photo bar for an edge-to-edge frame view. Remains in fullscreen mode for 30 minutes or until touched/dismissed.
+  - **Fullscreen Slideshow Mode**: Tap the fullscreen expansion icon in the bottom photo bar for an edge-to-edge frame view that stays full brightness unless you tap the **Dim** (moon) button in the bottom control bar. Remains in fullscreen mode for 30 minutes or until touched/dismissed.
   - **Auto-Detect Album Links**: Add a Google Task containing a `photos.app.goo.gl` link and Onnkiosk imports it into the slideshow automatically and marks the task complete.
 
 ---
