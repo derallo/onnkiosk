@@ -1,5 +1,6 @@
 package com.nernal.frame.data
 
+import android.util.Base64
 import android.util.Log
 import com.nernal.frame.BuildConfig
 import com.nernal.frame.hardware.VoiceAndAudioController
@@ -190,6 +191,95 @@ class GeminiAssistantClient(
             )
         }.onFailure { err ->
             Log.w("NernalGemini", "ask failed: ${err.message}")
+        }
+    }
+
+    /**
+     * Generates natural spoken WAV audio via Gemini 3.8 Flash-Lite TTS (Interactions API).
+     * Enables spoken Read Aloud and briefings even on Android frames without a built-in TTS engine.
+     */
+    suspend fun synthesizeSpeech(
+        apiKey: String,
+        text: String,
+        voiceName: String = DEFAULT_TTS_VOICE,
+    ): Result<ByteArray> = withContext(Dispatchers.IO) {
+        runCatching {
+            val key = apiKey.trim()
+            val clean = VoiceAndAudioController.sanitizeForSpeech(text)
+            require(key.isNotBlank()) { "Gemini API key is missing." }
+            require(clean.isNotBlank()) { "Nothing to read aloud." }
+
+            val payload = JSONObject().apply {
+                put("model", TTS_MODEL)
+                put(
+                    "input",
+                    JSONArray().put(
+                        JSONObject().apply {
+                            put("type", "user_input")
+                            put(
+                                "content",
+                                JSONArray().put(
+                                    JSONObject().apply {
+                                        put("type", "text")
+                                        put("text", clean)
+                                        put(
+                                            "annotations",
+                                            JSONArray().put(
+                                                JSONObject().apply {
+                                                    put("type", "speech_metadata")
+                                                    put("style", "warm, clear, and friendly")
+                                                }
+                                            )
+                                        )
+                                    }
+                                )
+                            )
+                        }
+                    )
+                )
+                put("response_format", JSONObject().put("type", "audio"))
+                put(
+                    "generation_config",
+                    JSONObject().put(
+                        "speech_config",
+                        JSONArray().put(JSONObject().put("voice", voiceName))
+                    )
+                )
+            }
+
+            val req = Request.Builder()
+                .url(INTERACTIONS_ENDPOINT_URL)
+                .header("x-goog-api-key", key)
+                .post(payload.toString().toRequestBody(JSON_MEDIA_TYPE))
+                .build()
+
+            val respJson = httpClient.newCall(req).execute().use { resp ->
+                val body = resp.body?.string().orEmpty()
+                if (!resp.isSuccessful) {
+                    val err = NernalRepository.extractGoogleApiError(body, "Gemini TTS HTTP ${resp.code}")
+                    error(err)
+                }
+                JSONObject(body)
+            }
+
+            val steps = respJson.optJSONArray("steps") ?: JSONArray()
+            var audioBase64: String? = null
+            for (i in 0 until steps.length()) {
+                val step = steps.optJSONObject(i) ?: continue
+                if (step.optString("type") != "model_output") continue
+                val content = step.optJSONArray("content") ?: continue
+                for (j in 0 until content.length()) {
+                    val block = content.optJSONObject(j) ?: continue
+                    if (block.optString("type") == "audio") {
+                        val b64 = block.optString("data")
+                        if (b64.isNotBlank()) audioBase64 = b64
+                    }
+                }
+            }
+            val data = audioBase64 ?: error("Gemini TTS returned no audio data.")
+            Base64.decode(data, Base64.DEFAULT)
+        }.onFailure { err ->
+            Log.w("NernalGemini", "synthesizeSpeech failed: ${err.message}")
         }
     }
 
@@ -457,6 +547,10 @@ Rules:
         private val JSON_MEDIA_TYPE = "application/json; charset=utf-8".toMediaType()
         private const val ENDPOINT_URL =
             "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent"
+        private const val INTERACTIONS_ENDPOINT_URL =
+            "https://generativelanguage.googleapis.com/v1beta/interactions"
+        private const val TTS_MODEL = "gemini-3.8-flash-lite-tts"
+        private const val DEFAULT_TTS_VOICE = "Kore"
 
         private val VISION_HINT_REGEX = Regex(
             """\b(?:what am i holding|what is this|what'?s this|look at|see this|read this|scan this|how do i look|in my hand|in front of|camera|take a look|what does this say)\b""",

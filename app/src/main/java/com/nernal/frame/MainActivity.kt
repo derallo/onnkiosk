@@ -551,7 +551,7 @@ private fun NernalFrameRoot(
         if (state.showMemoryDialog) {
             MemoryBookDialog(
                 entries = state.memoryEntries,
-                canSpeak = state.capabilities.hasAudioOutput,
+                canSpeak = state.canSpeakAloud,
                 onReadAloud = viewModel::speakAloud,
                 onDeleteLocal = viewModel::deleteLocalMemoryEntry,
                 onDismiss = { viewModel.setShowMemoryDialog(false) },
@@ -607,7 +607,7 @@ private fun NernalFrameRoot(
                 selectedDateIso = selectedWeatherIso,
                 locationName = state.userLocation.name,
                 activeAlerts = state.activeWeatherAlerts,
-                canReadAloud = state.capabilities.hasAudioOutput,
+                canReadAloud = state.canSpeakAloud,
                 onSelectDay = viewModel::setSelectedWeatherDay,
                 onOpenRadar = {
                     viewModel.setSelectedWeatherDay(null)
@@ -626,7 +626,7 @@ private fun NernalFrameRoot(
             EventDetailsDialog(
                 item = eventItem,
                 availableCalendars = state.availableCalendars,
-                canReadAloud = state.capabilities.hasAudioOutput,
+                canReadAloud = state.canSpeakAloud,
                 onReadAloud = {
                     val datePart = eventItem.dateKey?.let { " on $it" }.orEmpty()
                     val timePart = eventItem.time?.let { " at $it" }.orEmpty()
@@ -831,7 +831,7 @@ private fun NernalFrameRoot(
 
         QuickAnswerCardOverlay(
             card = state.quickAnswerCard,
-            canSpeak = state.capabilities.hasAudioOutput,
+            canSpeak = state.canSpeakAloud,
             isSpeaking = state.voiceState == VoiceAssistantState.SPEAKING,
             onReadAloud = viewModel::speakAloud,
             onStopSpeaking = viewModel::closeVoiceSession,

@@ -1920,7 +1920,12 @@ fun SettingsDialog(
                                 modifier = Modifier.size(18.dp),
                             )
                             Spacer(Modifier.width(8.dp))
-                            Text("Test Chime & Voice", color = NernalColors.Ink, fontSize = 13.sp, fontWeight = FontWeight.SemiBold)
+                            Text(
+                                text = if (state.canSpeakAloud) "Test Chime & Voice" else "Test Chime",
+                                color = NernalColors.Ink,
+                                fontSize = 13.sp,
+                                fontWeight = FontWeight.SemiBold,
+                            )
                         }
                     }
 
@@ -1976,10 +1981,13 @@ fun SettingsDialog(
                                     }
                                 }
                                 Text(
-                                    text = if (state.capabilities.hasVoiceInputAndOutput) {
-                                        "On-device speech already handles time, weather, schedule, tasks, and screen controls. Add your free Gemini API key for conversational AI, camera vision (\"What am I holding?\"), and Memory Book recipes."
-                                    } else {
-                                        "Add your free Gemini API key here (use \"Send from Phone/PC\" to beam it over Wi-Fi). Note: the Speak mic button appears automatically on devices with a working microphone and Android speech recognition."
+                                    text = when {
+                                        state.capabilities.hasVoiceInputAndOutput ->
+                                            "On-device speech already handles time, weather, schedule, tasks, and screen controls. Add your free Gemini API key for natural AI voice, conversational Q&A, camera vision (\"What am I holding?\"), and Memory Book recipes."
+                                        state.capabilities.hasAudioOutput && !state.capabilities.hasTextToSpeech ->
+                                            "This frame has speakers but no built-in Android voice engine. Add your free Gemini API key (tap \"Send from Phone/PC\" to beam it over Wi-Fi) to unlock natural AI voice for Read Aloud, Weather, Event Alerts, and Morning Briefings."
+                                        else ->
+                                            "Add your free Gemini API key here (use \"Send from Phone/PC\" to beam it over Wi-Fi) for natural AI voice and Super ${BuildConfig.APP_DISPLAY_NAME} features."
                                     },
                                     color = NernalColors.InkMuted,
                                     fontSize = 12.sp,

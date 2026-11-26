@@ -174,6 +174,7 @@ data class DeviceCapabilities(
     val hasMicrophone: Boolean = false,
     val hasAudioOutput: Boolean = false,
     val hasOnDeviceSpeech: Boolean = false,
+    val hasTextToSpeech: Boolean = false,
 ) {
     val hasVoiceInputAndOutput: Boolean
         get() = hasMicrophone && hasAudioOutput && hasOnDeviceSpeech

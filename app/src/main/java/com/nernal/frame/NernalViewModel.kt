@@ -209,6 +209,9 @@ data class NernalUiState(
 
     val showFirstSetupShortcuts: Boolean
         get() = authState != GoogleAuthState.SIGNED_IN && customSharedAlbumUrls.isEmpty() && !piSyncEnabled
+
+    val canSpeakAloud: Boolean
+        get() = capabilities.hasAudioOutput && (capabilities.hasTextToSpeech || geminiApiKey.isNotBlank())
 }
 
 class NernalViewModel(application: Application) : AndroidViewModel(application) {
@@ -230,6 +233,8 @@ class NernalViewModel(application: Application) : AndroidViewModel(application) 
     private var photoLoadJob: Job? = null
     private var undoDeleteJob: Job? = null
     private var voiceJob: Job? = null
+    private var speakJob: Job? = null
+    private var voiceErrorClearJob: Job? = null
     private var alarmChimeJob: Job? = null
     private var alarmSnoozeJob: Job? = null
     private var lastFiredAlarmKey: String? = null
@@ -372,13 +377,7 @@ class NernalViewModel(application: Application) : AndroidViewModel(application) 
                     if (wasFollowUp && (errMsg == "Didn't catch that." || errMsg == "No speech detected.")) {
                         closeVoiceSession()
                     } else {
-                        _uiState.update {
-                            it.copy(
-                                voiceState = VoiceAssistantState.IDLE,
-                                isFollowUpListening = false,
-                                voiceError = errMsg,
-                            )
-                        }
+                        showTransientVoiceError(errMsg)
                     }
                 },
                 onSpeakingStarted = {
@@ -528,22 +527,124 @@ class NernalViewModel(application: Application) : AndroidViewModel(application) 
     fun testAudioChimeAndVoice() {
         val vc = voiceController ?: return
         vc.playChime()
-        vc.speak("${BuildConfig.APP_DISPLAY_NAME} audio alerts are ready.")
+        if (_uiState.value.canSpeakAloud) {
+            speakWithBestEngine(
+                text = "${BuildConfig.APP_DISPLAY_NAME} audio alerts are ready.",
+                showOverlay = false,
+            )
+        }
     }
 
     fun speakAloud(text: String) {
-        val vc = voiceController ?: return
         if (!_uiState.value.capabilities.hasAudioOutput) return
         touchUserActivity()
+        speakWithBestEngine(text = text, showOverlay = true)
+    }
+
+    private fun showTransientVoiceError(message: String, durationMs: Long = 5_000L) {
+        voiceErrorClearJob?.cancel()
         _uiState.update {
             it.copy(
-                voiceState = VoiceAssistantState.SPEAKING,
-                voiceAssistantTranscript = text,
-                voiceError = null,
+                voiceState = VoiceAssistantState.IDLE,
+                isFollowUpListening = false,
+                voiceError = message,
             )
         }
-        vc.speak(text) {
-            _uiState.update { it.copy(voiceState = VoiceAssistantState.IDLE) }
+        voiceErrorClearJob = viewModelScope.launch {
+            delay(durationMs)
+            _uiState.update { cur ->
+                if (cur.voiceState == VoiceAssistantState.IDLE && cur.voiceError == message) {
+                    cur.copy(voiceError = null, voiceAssistantTranscript = "", voiceUserTranscript = "")
+                } else {
+                    cur
+                }
+            }
+        }
+    }
+
+    private fun speakWithBestEngine(
+        text: String,
+        showOverlay: Boolean,
+        onDone: () -> Unit = {},
+    ) {
+        val vc = voiceController ?: run {
+            onDone()
+            return
+        }
+        val state = _uiState.value
+        if (!state.capabilities.hasAudioOutput) {
+            onDone()
+            return
+        }
+
+        speakJob?.cancel()
+        voiceErrorClearJob?.cancel()
+        val apiKey = state.geminiApiKey.trim()
+
+        if (apiKey.isNotBlank()) {
+            speakJob = viewModelScope.launch {
+                if (showOverlay) {
+                    _uiState.update {
+                        it.copy(
+                            voiceState = VoiceAssistantState.SPEAKING,
+                            voiceAssistantTranscript = text,
+                            voiceError = null,
+                        )
+                    }
+                }
+                val ttsRes = geminiClient.synthesizeSpeech(apiKey = apiKey, text = text)
+                if (!isActive) return@launch
+                ttsRes.fold(
+                    onSuccess = { wavBytes ->
+                        vc.playWavBytes(wavBytes) {
+                            _uiState.update { cur ->
+                                if (cur.voiceState == VoiceAssistantState.SPEAKING) {
+                                    cur.copy(voiceState = VoiceAssistantState.IDLE)
+                                } else {
+                                    cur
+                                }
+                            }
+                            onDone()
+                        }
+                    },
+                    onFailure = { err ->
+                        if (state.capabilities.hasTextToSpeech) {
+                            vc.speak(text) {
+                                _uiState.update { it.copy(voiceState = VoiceAssistantState.IDLE) }
+                                onDone()
+                            }
+                        } else {
+                            if (showOverlay) {
+                                showTransientVoiceError(err.message ?: "Gemini voice unavailable.")
+                            } else {
+                                _uiState.update { it.copy(voiceState = VoiceAssistantState.IDLE) }
+                            }
+                            onDone()
+                        }
+                    },
+                )
+            }
+        } else if (state.capabilities.hasTextToSpeech) {
+            if (showOverlay) {
+                _uiState.update {
+                    it.copy(
+                        voiceState = VoiceAssistantState.SPEAKING,
+                        voiceAssistantTranscript = text,
+                        voiceError = null,
+                    )
+                }
+            }
+            vc.speak(text) {
+                _uiState.update { it.copy(voiceState = VoiceAssistantState.IDLE) }
+                onDone()
+            }
+        } else {
+            if (showOverlay) {
+                showTransientVoiceError("No built-in voice engine on this frame. Add a Gemini API key in Settings to enable Read Aloud.")
+            } else {
+                _uiState.update { it.copy(voiceState = VoiceAssistantState.IDLE) }
+            }
+            onDone()
         }
     }
 
@@ -582,6 +683,8 @@ class NernalViewModel(application: Application) : AndroidViewModel(application) 
     fun closeVoiceSession() {
         voiceSessionCancelled = true
         voiceJob?.cancel()
+        speakJob?.cancel()
+        voiceErrorClearJob?.cancel()
         voiceController?.stopListening()
         voiceController?.stopSpeaking()
         conversationHistory.clear()
@@ -655,7 +758,9 @@ class NernalViewModel(application: Application) : AndroidViewModel(application) 
             _uiState.update { it.copy(quickAnswerCard = brief.card ?: it.quickAnswerCard) }
             if (_uiState.value.capabilities.hasAudioOutput) {
                 voiceController?.playChime()
-                speakAloud(brief.spokenText)
+                if (_uiState.value.canSpeakAloud) {
+                    speakAloud(brief.spokenText)
+                }
             }
         } else if (_uiState.value.capabilities.hasAudioOutput) {
             alarmChimeJob = viewModelScope.launch {
@@ -678,7 +783,7 @@ class NernalViewModel(application: Application) : AndroidViewModel(application) 
         if (timing == AlarmBriefTiming.ON_DISMISS) {
             val brief = OnDeviceVoiceEngine.handleCommand("Give me my morning briefing", currentVoiceContextSnapshot())
             _uiState.update { it.copy(quickAnswerCard = brief.card ?: it.quickAnswerCard) }
-            if (_uiState.value.capabilities.hasAudioOutput) {
+            if (_uiState.value.canSpeakAloud) {
                 speakAloud(brief.spokenText)
             }
         }
@@ -762,10 +867,9 @@ class NernalViewModel(application: Application) : AndroidViewModel(application) 
                 )
             }
 
-            val vc = voiceController
-            if (vc != null && _uiState.value.capabilities.hasAudioOutput) {
-                vc.speak(result.spokenText) {
-                    if (voiceSessionCancelled) return@speak
+            if (_uiState.value.canSpeakAloud) {
+                speakWithBestEngine(text = result.spokenText, showOverlay = true) {
+                    if (voiceSessionCancelled) return@speakWithBestEngine
                     if (result.shouldEndConversation) {
                         closeVoiceSession()
                     } else if (_uiState.value.capabilities.hasOnDeviceSpeech) {
@@ -960,8 +1064,13 @@ class NernalViewModel(application: Application) : AndroidViewModel(application) 
             }
             if (state.capabilities.hasAudioOutput && state.audibleEventAlertsEnabled && !_uiState.value.isManualNightMode) {
                 voiceController?.playChime()
-                val timePart = upcomingEvent.time?.takeIf { it.isNotBlank() }?.let { " at $it" }.orEmpty()
-                voiceController?.speak("Upcoming event$timePart: ${upcomingEvent.text}")
+                if (state.canSpeakAloud) {
+                    val timePart = upcomingEvent.time?.takeIf { it.isNotBlank() }?.let { " at $it" }.orEmpty()
+                    speakWithBestEngine(
+                        text = "Upcoming event$timePart: ${upcomingEvent.text}",
+                        showOverlay = false,
+                    )
+                }
             }
         }
     }

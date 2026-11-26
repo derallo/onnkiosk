@@ -39,13 +39,20 @@ class VoiceAndAudioController(
     private var tts: TextToSpeech? = null
     @Volatile
     private var ttsReady = false
+    @Volatile
+    private var ttsInitFailed = false
     private var pendingSpeakText: String? = null
     private var pendingSpeakDone: (() -> Unit)? = null
+    private var pendingTtsTimeout: Runnable? = null
     private var speechRecognizer: SpeechRecognizer? = null
     @Volatile
     private var isListening = false
     private var activeUtteranceId: String? = null
     private var onTtsDoneCallback: (() -> Unit)? = null
+    @Volatile
+    private var activeWavTrack: AudioTrack? = null
+    @Volatile
+    private var wavPlaybackGeneration: Long = 0L
 
     init {
         initTts()
@@ -89,6 +96,8 @@ class VoiceAndAudioController(
                         }
                     })
                     ttsReady = true
+                    ttsInitFailed = false
+                    clearPendingTtsTimeout()
                     val queued = pendingSpeakText
                     val queuedDone = pendingSpeakDone
                     pendingSpeakText = null
@@ -98,8 +107,37 @@ class VoiceAndAudioController(
                     }
                 } else {
                     Log.w("NernalAudio", "TTS init failed status=$status")
+                    ttsReady = false
+                    ttsInitFailed = true
+                    mainHandler.post {
+                        failPendingTts("Built-in Android voice engine is unavailable on this device.")
+                    }
                 }
             }
+        }.onFailure {
+            ttsReady = false
+            ttsInitFailed = true
+            mainHandler.post {
+                failPendingTts("Built-in Android voice engine is unavailable on this device.")
+            }
+        }
+    }
+
+    private fun clearPendingTtsTimeout() {
+        pendingTtsTimeout?.let { mainHandler.removeCallbacks(it) }
+        pendingTtsTimeout = null
+    }
+
+    private fun failPendingTts(reason: String) {
+        clearPendingTtsTimeout()
+        val queuedDone = pendingSpeakDone
+        val hadPending = pendingSpeakText != null || queuedDone != null
+        pendingSpeakText = null
+        pendingSpeakDone = null
+        if (hadPending) {
+            onSpeakingFinished()
+            onSpeechError(reason)
+            queuedDone?.invoke()
         }
     }
 
@@ -168,9 +206,23 @@ class VoiceAndAudioController(
             return
         }
         mainHandler.post {
+            stopWavPlaybackInternal()
+            if (ttsInitFailed) {
+                onSpeakingFinished()
+                onSpeechError("No built-in Android voice engine on this device. Add a Gemini API key in Settings for AI voice.")
+                onDone?.invoke()
+                return@post
+            }
             if (!ttsReady || tts == null) {
                 pendingSpeakText = clean
                 pendingSpeakDone = onDone
+                clearPendingTtsTimeout()
+                val timeout = Runnable {
+                    ttsInitFailed = true
+                    failPendingTts("Voice engine did not respond on this device. Add a Gemini API key in Settings for AI voice.")
+                }
+                pendingTtsTimeout = timeout
+                mainHandler.postDelayed(timeout, 3_000L)
                 if (tts == null) initTts()
                 return@post
             }
@@ -178,17 +230,120 @@ class VoiceAndAudioController(
             activeUtteranceId = utteranceId
             onTtsDoneCallback = onDone
             onSpeakingStarted()
-            tts?.speak(clean, TextToSpeech.QUEUE_FLUSH, null, utteranceId)
+            val result = runCatching {
+                tts?.speak(clean, TextToSpeech.QUEUE_FLUSH, null, utteranceId) ?: TextToSpeech.ERROR
+            }.getOrDefault(TextToSpeech.ERROR)
+            if (result == TextToSpeech.ERROR) {
+                activeUtteranceId = null
+                val cb = onTtsDoneCallback
+                onTtsDoneCallback = null
+                onSpeakingFinished()
+                onSpeechError("Unable to play Android text-to-speech on this device.")
+                cb?.invoke()
+            }
+        }
+    }
+
+    /**
+     * Plays a standard PCM WAV buffer (such as Gemini TTS 24 kHz mono output) directly via AudioTrack.
+     * Works even on stripped AOSP picture frames with no Android TTS engine installed.
+     */
+    fun playWavBytes(wavBytes: ByteArray, onDone: (() -> Unit)? = null) {
+        val parsed = parseWavPcm(wavBytes)
+        if (parsed == null) {
+            mainHandler.post {
+                onSpeakingFinished()
+                onSpeechError("Received unsupported audio format.")
+                onDone?.invoke()
+            }
+            return
+        }
+
+        mainHandler.post {
+            stopSpeakingInternal()
+            val gen = ++wavPlaybackGeneration
+            onSpeakingStarted()
+
+            thread(isDaemon = true, name = "NernalWavSpeak") {
+                var track: AudioTrack? = null
+                try {
+                    val channelMask = if (parsed.channels >= 2) {
+                        AudioFormat.CHANNEL_OUT_STEREO
+                    } else {
+                        AudioFormat.CHANNEL_OUT_MONO
+                    }
+                    val minBuf = AudioTrack.getMinBufferSize(
+                        parsed.sampleRate,
+                        channelMask,
+                        AudioFormat.ENCODING_PCM_16BIT,
+                    ).coerceAtLeast(4096)
+
+                    val audioTrack = AudioTrack.Builder()
+                        .setAudioAttributes(
+                            AudioAttributes.Builder()
+                                .setUsage(AudioAttributes.USAGE_MEDIA)
+                                .setContentType(AudioAttributes.CONTENT_TYPE_SPEECH)
+                                .build()
+                        )
+                        .setAudioFormat(
+                            AudioFormat.Builder()
+                                .setEncoding(AudioFormat.ENCODING_PCM_16BIT)
+                                .setSampleRate(parsed.sampleRate)
+                                .setChannelMask(channelMask)
+                                .build()
+                        )
+                        .setBufferSizeInBytes(minBuf * 2)
+                        .setTransferMode(AudioTrack.MODE_STREAM)
+                        .build()
+
+                    if (wavPlaybackGeneration != gen) {
+                        runCatching { audioTrack.release() }
+                        return@thread
+                    }
+                    track = audioTrack
+                    activeWavTrack = audioTrack
+                    audioTrack.play()
+
+                    var offset = parsed.dataOffset
+                    val end = (parsed.dataOffset + parsed.dataLength).coerceAtMost(wavBytes.size)
+                    val chunkSize = 4096
+                    while (offset < end && wavPlaybackGeneration == gen) {
+                        val toWrite = (end - offset).coerceAtMost(chunkSize)
+                        val written = audioTrack.write(wavBytes, offset, toWrite)
+                        if (written <= 0) break
+                        offset += written
+                    }
+                    if (wavPlaybackGeneration == gen) {
+                        // Allow the final audio buffer to drain out of the hardware FIFO before stopping.
+                        val drainMs = ((minBuf.toDouble() / (parsed.sampleRate * parsed.channels * 2)) * 1000.0)
+                            .toLong()
+                            .coerceIn(120L, 450L)
+                        Thread.sleep(drainMs)
+                    }
+                } catch (e: Throwable) {
+                    Log.w("NernalAudio", "WAV playback failed: ${e.message}")
+                } finally {
+                    track?.let { t ->
+                        runCatching { t.stop() }
+                        runCatching { t.release() }
+                        if (activeWavTrack === t) {
+                            activeWavTrack = null
+                        }
+                    }
+                    if (wavPlaybackGeneration == gen) {
+                        mainHandler.post {
+                            onSpeakingFinished()
+                            onDone?.invoke()
+                        }
+                    }
+                }
+            }
         }
     }
 
     fun stopSpeaking() {
         mainHandler.post {
-            pendingSpeakText = null
-            pendingSpeakDone = null
-            activeUtteranceId = null
-            onTtsDoneCallback = null
-            runCatching { tts?.stop() }
+            stopSpeakingInternal()
             onSpeakingFinished()
         }
     }
@@ -301,11 +456,24 @@ class VoiceAndAudioController(
         }
     }
 
+    private fun stopWavPlaybackInternal() {
+        wavPlaybackGeneration++
+        val t = activeWavTrack
+        activeWavTrack = null
+        if (t != null) {
+            runCatching { t.pause() }
+            runCatching { t.flush() }
+            runCatching { t.stop() }
+        }
+    }
+
     private fun stopSpeakingInternal() {
+        clearPendingTtsTimeout()
         pendingSpeakText = null
         pendingSpeakDone = null
         activeUtteranceId = null
         onTtsDoneCallback = null
+        stopWavPlaybackInternal()
         runCatching { tts?.stop() }
     }
 
@@ -315,11 +483,62 @@ class VoiceAndAudioController(
         speechRecognizer = null
     }
 
+    data class WavPcmSpec(
+        val sampleRate: Int,
+        val channels: Int,
+        val dataOffset: Int,
+        val dataLength: Int,
+    )
+
     companion object {
         fun sanitizeForSpeech(raw: String): String = raw
             .replace(Regex("""[*_`#]+"""), "")
             .replace(Regex("""https?://\S+"""), "")
             .replace(Regex("""\s+"""), " ")
             .trim()
+
+        fun parseWavPcm(bytes: ByteArray): WavPcmSpec? {
+            if (bytes.size < 16) return null
+            val isRiff = bytes[0] == 'R'.code.toByte() &&
+                bytes[1] == 'I'.code.toByte() &&
+                bytes[2] == 'F'.code.toByte() &&
+                bytes[3] == 'F'.code.toByte() &&
+                bytes[8] == 'W'.code.toByte() &&
+                bytes[9] == 'A'.code.toByte() &&
+                bytes[10] == 'V'.code.toByte() &&
+                bytes[11] == 'E'.code.toByte()
+            if (!isRiff) {
+                // Fallback for raw 24 kHz 16-bit mono PCM
+                return WavPcmSpec(sampleRate = 24_000, channels = 1, dataOffset = 0, dataLength = bytes.size)
+            }
+            var sampleRate = 24_000
+            var channels = 1
+            var pos = 12
+            while (pos + 8 <= bytes.size) {
+                val id = String(bytes, pos, 4, Charsets.US_ASCII)
+                val size = readLeInt(bytes, pos + 4)
+                val bodyStart = pos + 8
+                if (size < 0 || bodyStart > bytes.size) break
+                if (id == "fmt " && bodyStart + 16 <= bytes.size) {
+                    channels = readLeShort(bytes, bodyStart + 2).coerceIn(1, 2)
+                    sampleRate = readLeInt(bytes, bodyStart + 4).coerceIn(8_000, 48_000)
+                } else if (id == "data") {
+                    val dataLen = size.coerceAtMost(bytes.size - bodyStart)
+                    if (dataLen <= 0) return null
+                    return WavPcmSpec(sampleRate, channels, bodyStart, dataLen)
+                }
+                pos = bodyStart + size + (size and 1)
+            }
+            return null
+        }
+
+        private fun readLeShort(b: ByteArray, offset: Int): Int =
+            (b[offset].toInt() and 0xFF) or ((b[offset + 1].toInt() and 0xFF) shl 8)
+
+        private fun readLeInt(b: ByteArray, offset: Int): Int =
+            (b[offset].toInt() and 0xFF) or
+                ((b[offset + 1].toInt() and 0xFF) shl 8) or
+                ((b[offset + 2].toInt() and 0xFF) shl 16) or
+                ((b[offset + 3].toInt() and 0xFF) shl 24)
     }
 }

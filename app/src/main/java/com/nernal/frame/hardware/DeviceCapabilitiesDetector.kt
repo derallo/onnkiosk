@@ -1,12 +1,14 @@
 package com.nernal.frame.hardware
 
 import android.content.Context
+import android.content.Intent
 import android.content.pm.PackageManager
 import android.hardware.camera2.CameraCharacteristics
 import android.hardware.camera2.CameraManager
 import android.media.AudioDeviceInfo
 import android.media.AudioManager
 import android.speech.SpeechRecognizer
+import android.speech.tts.TextToSpeech
 import com.nernal.frame.data.DeviceCapabilities
 
 object DeviceCapabilitiesDetector {
@@ -53,6 +55,10 @@ object DeviceCapabilitiesDetector {
             SpeechRecognizer.isRecognitionAvailable(context)
         }.getOrDefault(false)
 
+        val hasTextToSpeech = hasAudioOutput && runCatching {
+            pm.queryIntentServices(Intent(TextToSpeech.Engine.INTENT_ACTION_TTS_SERVICE), 0).isNotEmpty()
+        }.getOrDefault(false)
+
         return DeviceCapabilities(
             hasCamera = hasCamera,
             hasFrontCamera = hasFrontCamera,
@@ -60,6 +66,7 @@ object DeviceCapabilitiesDetector {
             hasMicrophone = hasMicrophone,
             hasAudioOutput = hasAudioOutput,
             hasOnDeviceSpeech = hasOnDeviceSpeech,
+            hasTextToSpeech = hasTextToSpeech,
         )
     }
 

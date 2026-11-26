@@ -16,6 +16,7 @@ import com.nernal.frame.data.wmoKind
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNotEquals
+import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
@@ -793,5 +794,35 @@ class NernalParserTest {
         assertNull(intl.stateNameFilter)
 
         assertTrue(com.nernal.frame.data.CalendarViewMode.NONE in com.nernal.frame.data.CalendarViewMode.entries)
+    }
+
+    @Test
+    fun parseWavPcmExtractsHeaderAndFallsBackToRawPcm() {
+        val pcmLen = 16
+        val wav = ByteArray(44 + pcmLen)
+        "RIFF".toByteArray().copyInto(wav, 0)
+        "WAVE".toByteArray().copyInto(wav, 8)
+        "fmt ".toByteArray().copyInto(wav, 12)
+        wav[16] = 16 // fmt chunk size
+        wav[20] = 1 // PCM format
+        wav[22] = 1 // mono
+        // 24000 Hz little-endian (0x00005DC0)
+        wav[24] = 0xC0.toByte()
+        wav[25] = 0x5D
+        "data".toByteArray().copyInto(wav, 36)
+        wav[40] = pcmLen.toByte()
+
+        val parsed = com.nernal.frame.hardware.VoiceAndAudioController.parseWavPcm(wav)
+        assertNotNull(parsed)
+        assertEquals(24_000, parsed!!.sampleRate)
+        assertEquals(1, parsed.channels)
+        assertEquals(44, parsed.dataOffset)
+        assertEquals(pcmLen, parsed.dataLength)
+
+        val rawFallback = com.nernal.frame.hardware.VoiceAndAudioController.parseWavPcm(ByteArray(32))
+        assertNotNull(rawFallback)
+        assertEquals(24_000, rawFallback!!.sampleRate)
+        assertEquals(0, rawFallback.dataOffset)
+        assertEquals(32, rawFallback.dataLength)
     }
 }
