@@ -731,7 +731,7 @@ class FramePrefs(context: Context) {
     }
 
     companion object {
-        const val DEFAULT_PI_URL = "http://192.168.68.86:3000"
+        const val DEFAULT_PI_URL = "http://10.0.0.190:3000"
         const val DEFAULT_SLIDE_INTERVAL_SEC = 10
         const val DEFAULT_DIM_BRIGHTNESS = 0.16f
         const val DEFAULT_GLOBAL_BRIGHTNESS = 0.85f

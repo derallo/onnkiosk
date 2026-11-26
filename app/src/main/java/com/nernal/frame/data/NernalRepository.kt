@@ -350,11 +350,12 @@ class NernalRepository(private val cacheDir: File? = null) {
     suspend fun resolveReachablePiUrl(configuredUrl: String): String? = withContext(Dispatchers.IO) {
         val candidates = listOf(
             FramePrefs.normalizePiUrl(configuredUrl),
-            FramePrefs.DEFAULT_PI_URL,
             "http://touchscreen-pi.local:3000",
+            "http://10.0.0.190:3000",
+            FramePrefs.DEFAULT_PI_URL,
         ).distinct()
 
-        val checks = coroutineScope {
+        val directHit = coroutineScope {
             candidates.map { base ->
                 async {
                     val ok = runCatching {
@@ -364,9 +365,53 @@ class NernalRepository(private val cacheDir: File? = null) {
                     if (ok) base else null
                 }
             }.awaitAll()
+        }.firstOrNull { it != null }
+        if (directHit != null) return@withContext directHit
+
+        // If DHCP moved the Pi on the local Wi-Fi subnet, do a quick parallel probe of the device's /24 on port 3000
+        val subnetPrefix = detectLocalIpv4Prefix() ?: return@withContext null
+        val scanClient = piClient.newBuilder()
+            .connectTimeout(350, TimeUnit.MILLISECONDS)
+            .readTimeout(900, TimeUnit.MILLISECONDS)
+            .build()
+        val found = java.util.concurrent.atomic.AtomicReference<String?>(null)
+        coroutineScope {
+            (1..254).chunked(32).forEach { batch ->
+                if (found.get() != null) return@forEach
+                batch.map { host ->
+                    async {
+                        if (found.get() != null) return@async
+                        val base = "http://$subnetPrefix.$host:3000"
+                        val ok = runCatching {
+                            val req = Request.Builder().url("$base/api/album/summary").build()
+                            scanClient.newCall(req).execute().use { resp ->
+                                resp.isSuccessful && (resp.body?.string()?.contains("totalPhotos") == true)
+                            }
+                        }.getOrDefault(false)
+                        if (ok) found.compareAndSet(null, base)
+                    }
+                }.awaitAll()
+            }
         }
-        checks.firstOrNull { it != null }
+        found.get()
     }
+
+    private fun detectLocalIpv4Prefix(): String? = runCatching {
+        val ifaces = java.net.NetworkInterface.getNetworkInterfaces() ?: return@runCatching null
+        for (iface in ifaces.toList()) {
+            if (!iface.isUp || iface.isLoopback) continue
+            for (addr in iface.inetAddresses.toList()) {
+                if (addr is java.net.Inet4Address && !addr.isLoopbackAddress) {
+                    val ip = addr.hostAddress ?: continue
+                    val parts = ip.split('.')
+                    if (parts.size == 4 && (ip.startsWith("192.168.") || ip.startsWith("10.") || ip.startsWith("172."))) {
+                        return@runCatching "${parts[0]}.${parts[1]}.${parts[2]}"
+                    }
+                }
+            }
+        }
+        null
+    }.getOrNull()
 
     suspend fun syncWithPi(
         configuredPiUrl: String,

@@ -1235,8 +1235,13 @@ class NernalViewModel(application: Application) : AndroidViewModel(application) 
             applyLibraryPoolToState(totalCount = maxOf(total, libraryPool.size), syncDone = true)
         }
 
+        if (outcome.reachableUrl != _uiState.value.piBaseUrl) {
+            withContext(Dispatchers.IO) { prefs.savePiBaseUrl(outcome.reachableUrl) }
+        }
+
         _uiState.update {
             it.copy(
+                piBaseUrl = outcome.reachableUrl,
                 activePiUrl = outcome.reachableUrl,
                 piConnection = PiConnectionState.CONNECTED,
                 pendingSyncCount = combinedRemOps.size + outcome.remainingFavOps.size,
