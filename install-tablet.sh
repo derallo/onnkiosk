@@ -181,6 +181,15 @@ apply_kiosk_settings() {
     $ADB_CMD shell pm grant "$PACKAGE_NAME" android.permission.CAMERA 2>/dev/null || true
     $ADB_CMD shell pm grant "$PACKAGE_NAME" android.permission.RECORD_AUDIO 2>/dev/null || true
 
+    # Set app as default HOME launcher so the tablet never boots into Frameo or stock launcher
+    echo "    - Setting $PACKAGE_NAME as default HOME launcher..."
+    $ADB_CMD shell cmd package set-home-activity "$PACKAGE_NAME/$ACTIVITY_NAME" 2>/dev/null || true
+    $ADB_CMD shell cmd role add-role-holder --user 0 android.app.role.HOME "$PACKAGE_NAME" 2>/dev/null || true
+
+    # Exempt from Doze/battery optimization so background sync & alarms never stall
+    echo "    - Exempting $PACKAGE_NAME from battery optimization (Doze)..."
+    $ADB_CMD shell dumpsys deviceidle whitelist +"$PACKAGE_NAME" 2>/dev/null || true
+
     echo -e "${GREEN}[✓] Kiosk hardware settings applied.${NC}"
 }
 

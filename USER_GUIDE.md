@@ -46,8 +46,8 @@ Run `./install-tablet.sh --help` to view all flags (`--latest`, `--local`, `--bu
   ```
 - **Via APK Direct Download**: Download the latest release `.apk` in Chrome on the tablet. Open Android Settings → Apps → Special app access → **Install unknown apps** → Grant permission for **Onnkiosk** (also required for in-app self-updates).
 
-### C. Boot Receiver & Kiosk Auto-Start
-Onnkiosk includes a `BootReceiver` that automatically launches the dashboard when the tablet boots or recovers from power loss.
+### C. Boot Receiver, Default Home Launcher & Kiosk Auto-Start
+Onnkiosk (and Nernal) declare `CATEGORY_HOME` and include a `BootReceiver` listening for `BOOT_COMPLETED`, `LOCKED_BOOT_COMPLETED`, and `MY_PACKAGE_REPLACED`. On startup, the app checks `RoleManager.ROLE_HOME` (plus overlay and battery optimization status) and prompts with a one-tap **Set as Default Home** dialog if another launcher (such as Frameo) is still set as Home, preventing the tablet from rebooting into the wrong app. `./install-tablet.sh` also sets `ROLE_HOME` and Doze whitelist automatically over ADB.
 
 ---
 

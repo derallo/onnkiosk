@@ -1,9 +1,11 @@
 package com.nernal.frame
 
 import android.Manifest
+import android.app.role.RoleManager
 import android.content.Intent
 import android.content.pm.PackageManager
 import android.os.Bundle
+import android.os.PowerManager
 import android.provider.Settings
 import android.view.WindowManager
 import androidx.core.net.toUri
@@ -176,6 +178,38 @@ private fun NernalFrameRoot(
         contract = ActivityResultContracts.RequestMultiplePermissions(),
     ) {
         viewModel.onPermissionsUpdated()
+    }
+
+    val homeRoleLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.StartActivityForResult(),
+    ) { /* User completed or dismissed default Home app chooser */ }
+
+    var showStartupKioskPrompt by remember { mutableStateOf(false) }
+    var missingHomeRole by remember { mutableStateOf(false) }
+    var missingOverlayPerm by remember { mutableStateOf(false) }
+    var missingBatteryExemption by remember { mutableStateOf(false) }
+    var checkedStartupKiosk by remember { mutableStateOf(false) }
+
+    LaunchedEffect(Unit) {
+        if (checkedStartupKiosk) return@LaunchedEffect
+        checkedStartupKiosk = true
+        val roleManager = context.getSystemService(RoleManager::class.java)
+        val canRequestHome = roleManager?.isRoleAvailable(RoleManager.ROLE_HOME) == true
+        val holdsHome = roleManager?.isRoleHeld(RoleManager.ROLE_HOME) == true
+        val needsHome = canRequestHome && !holdsHome
+
+        val needsOverlay = !Settings.canDrawOverlays(context)
+        val pm = context.getSystemService(PowerManager::class.java)
+        val needsBattery = pm?.isIgnoringBatteryOptimizations(context.packageName) == false
+
+        // Only surface a startup prompt if the app isn't yet default Home launcher (prevents booting into Frameo)
+        // or lacks the overlay/battery guards that keep the kiosk from getting stuck.
+        if (needsHome) {
+            missingHomeRole = true
+            missingOverlayPerm = needsOverlay
+            missingBatteryExemption = needsBattery
+            showStartupKioskPrompt = true
+        }
     }
 
     var askedInitialPermissions by remember { mutableStateOf(false) }
@@ -767,6 +801,71 @@ private fun NernalFrameRoot(
                 state = state,
                 onSubmit = viewModel::submitUserFeedback,
                 onDismiss = { viewModel.setShowFeedbackDialog(false) },
+            )
+        }
+
+        if (showStartupKioskPrompt && missingHomeRole) {
+            AlertDialog(
+                onDismissRequest = { showStartupKioskPrompt = false },
+                containerColor = NernalColors.Card,
+                titleContentColor = NernalColors.Ink,
+                textContentColor = NernalColors.InkMuted,
+                shape = RoundedCornerShape(18.dp),
+                title = {
+                    Text(
+                        text = "Set ${BuildConfig.APP_DISPLAY_NAME} as Home App",
+                        color = NernalColors.Ink,
+                        fontSize = 20.sp,
+                        fontWeight = FontWeight.Bold,
+                    )
+                },
+                text = {
+                    val extras = buildList {
+                        add("• Default Home App (prevents rebooting into Frameo or another launcher)")
+                        if (missingOverlayPerm) add("• Display over other apps (keeps Return to App button visible)")
+                        if (missingBatteryExemption) add("• Unrestricted battery (prevents background sync stalls)")
+                    }.joinToString("\n")
+                    Text(
+                        text = "${BuildConfig.APP_DISPLAY_NAME} is not currently set as this tablet's default Home launcher.\n\n$extras",
+                        fontSize = 15.sp,
+                    )
+                },
+                confirmButton = {
+                    Button(
+                        onClick = {
+                            showStartupKioskPrompt = false
+                            val roleManager = context.getSystemService(RoleManager::class.java)
+                            val roleIntent = if (roleManager?.isRoleAvailable(RoleManager.ROLE_HOME) == true) {
+                                roleManager.createRequestRoleIntent(RoleManager.ROLE_HOME)
+                            } else {
+                                Intent(Settings.ACTION_HOME_SETTINGS)
+                            }
+                            runCatching { homeRoleLauncher.launch(roleIntent) }
+                                .onFailure {
+                                    runCatching {
+                                        context.startActivity(
+                                            Intent(Settings.ACTION_HOME_SETTINGS).apply {
+                                                flags = Intent.FLAG_ACTIVITY_NEW_TASK
+                                            }
+                                        )
+                                    }
+                                }
+                        },
+                        colors = ButtonDefaults.buttonColors(containerColor = NernalColors.Gold),
+                        shape = RoundedCornerShape(10.dp),
+                        modifier = Modifier.height(48.dp),
+                    ) {
+                        Text("Set as Default Home", color = NernalColors.Bg, fontWeight = FontWeight.Bold, fontSize = 15.sp)
+                    }
+                },
+                dismissButton = {
+                    TextButton(
+                        onClick = { showStartupKioskPrompt = false },
+                        modifier = Modifier.height(48.dp),
+                    ) {
+                        Text("Not Now", color = NernalColors.InkMuted, fontSize = 15.sp)
+                    }
+                },
             )
         }
 
