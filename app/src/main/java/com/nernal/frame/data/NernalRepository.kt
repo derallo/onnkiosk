@@ -348,27 +348,29 @@ class NernalRepository(private val cacheDir: File? = null) {
     // -------------------------------------------------------------------------
 
     suspend fun resolveReachablePiUrl(configuredUrl: String): String? = withContext(Dispatchers.IO) {
-        val candidates = listOf(
+        // 1. Zero-config UDP LAN broadcast discovery (sub-100ms, immune to DHCP IP changes)
+        val udpDiscovered = discoverPiViaUdpBroadcast()
+        if (udpDiscovered != null && probePiUrl(udpDiscovered)) {
+            return@withContext udpDiscovered
+        }
+
+        // 2. Fast parallel check of configured URL, mDNS hostname, and known IPs
+        val candidates = listOfNotNull(
             FramePrefs.normalizePiUrl(configuredUrl),
             "http://touchscreen-pi.local:3000",
             "http://10.0.0.190:3000",
             FramePrefs.DEFAULT_PI_URL,
+            "http://192.168.68.86:3000",
         ).distinct()
 
         val directHit = coroutineScope {
             candidates.map { base ->
-                async {
-                    val ok = runCatching {
-                        val req = Request.Builder().url("$base/api/album/summary").build()
-                        piClient.newCall(req).execute().use { it.isSuccessful }
-                    }.getOrDefault(false)
-                    if (ok) base else null
-                }
+                async { if (probePiUrl(base)) base else null }
             }.awaitAll()
         }.firstOrNull { it != null }
         if (directHit != null) return@withContext directHit
 
-        // If DHCP moved the Pi on the local Wi-Fi subnet, do a quick parallel probe of the device's /24 on port 3000
+        // 3. Fallback: parallel /24 subnet scan on port 3000 (handles routers that block UDP broadcast)
         val subnetPrefix = detectLocalIpv4Prefix() ?: return@withContext null
         val scanClient = piClient.newBuilder()
             .connectTimeout(350, TimeUnit.MILLISECONDS)
@@ -395,6 +397,46 @@ class NernalRepository(private val cacheDir: File? = null) {
         }
         found.get()
     }
+
+    private fun probePiUrl(base: String): Boolean = runCatching {
+        val req = Request.Builder().url("$base/api/album/summary").build()
+        piClient.newCall(req).execute().use { resp ->
+            resp.isSuccessful && (resp.body?.string()?.contains("totalPhotos") == true)
+        }
+    }.getOrDefault(false)
+
+    private fun discoverPiViaUdpBroadcast(): String? = runCatching {
+        java.net.DatagramSocket().use { sock ->
+            sock.broadcast = true
+            sock.soTimeout = 700
+            val probe = "NERNAL_DISCOVER".toByteArray(Charsets.UTF_8)
+            val targets = mutableListOf(java.net.InetAddress.getByName("255.255.255.255"))
+            val ifaces = java.net.NetworkInterface.getNetworkInterfaces()
+            if (ifaces != null) {
+                for (iface in ifaces.toList()) {
+                    if (!iface.isUp || iface.isLoopback) continue
+                    for (ia in iface.interfaceAddresses) {
+                        ia.broadcast?.let { targets.add(it) }
+                    }
+                }
+            }
+            for (addr in targets.distinct()) {
+                runCatching {
+                    sock.send(java.net.DatagramPacket(probe, probe.size, addr, 41234))
+                }
+            }
+            val buf = ByteArray(512)
+            val pkt = java.net.DatagramPacket(buf, buf.size)
+            sock.receive(pkt)
+            val json = JSONObject(String(pkt.data, 0, pkt.length, Charsets.UTF_8))
+            if (json.optString("service") != "nernal-kiosk") return@use null
+            val port = json.optInt("port", 3000)
+            val host = pkt.address?.hostAddress?.takeIf { it.isNotBlank() }
+                ?: json.optJSONArray("ips")?.optString(0)?.takeIf { it.isNotBlank() }
+                ?: return@use null
+            "http://$host:$port"
+        }
+    }.getOrNull()
 
     private fun detectLocalIpv4Prefix(): String? = runCatching {
         val ifaces = java.net.NetworkInterface.getNetworkInterfaces() ?: return@runCatching null
