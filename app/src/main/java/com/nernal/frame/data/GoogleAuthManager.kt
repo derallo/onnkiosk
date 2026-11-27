@@ -53,6 +53,8 @@ class GoogleAuthManager(
     private val client: OkHttpClient,
 ) {
     private val tokenMutex = Mutex()
+    private val codeExchangeMutex = Mutex()
+    private val consumedAuthCodes = LinkedHashSet<String>()
     private var serverSocket: ServerSocket? = null
     private var serverJob: Job? = null
     private var activeSession: PendingAuthSession? = null
@@ -64,6 +66,7 @@ class GoogleAuthManager(
         onCallbackReceived: (String) -> Unit,
     ): Result<PendingAuthSession> = runCatching {
         stopAuthServer()
+        synchronized(consumedAuthCodes) { consumedAuthCodes.clear() }
 
         val clientId = prefs.loadOAuthClientId().trim()
         require(clientId.isNotBlank()) {
@@ -385,88 +388,105 @@ class GoogleAuthManager(
                 out.flush()
 
                 if (hasCode || isError) {
-                    onCallbackReceived("http://localhost:${session.serverPort ?: 3000}$path")
+                    val shouldDispatch = synchronized(consumedAuthCodes) {
+                        val key = parsed.code ?: "error:${parsed.error}"
+                        consumedAuthCodes.add(key)
+                    }
+                    if (shouldDispatch) {
+                        onCallbackReceived("http://localhost:${session.serverPort ?: 3000}$path")
+                    }
                 }
             }
         }
     }
 
     suspend fun exchangeCodeForTokens(rawCodeOrUrl: String): Result<Pair<GoogleTokens, GoogleAccountProfile>> =
-        withContext(Dispatchers.IO) {
-            runCatching {
-                val session = activeSession
-                val clientId = prefs.loadOAuthClientId().trim()
-                val clientSecret = prefs.loadOAuthClientSecret().trim()
-                require(clientId.isNotBlank()) { "Missing OAuth Client ID" }
+        codeExchangeMutex.withLock {
+            withContext(Dispatchers.IO) {
+                runCatching {
+                    val session = activeSession
+                    val clientId = prefs.loadOAuthClientId().trim()
+                    val clientSecret = prefs.loadOAuthClientSecret().trim()
+                    require(clientId.isNotBlank()) { "Missing OAuth Client ID" }
 
-                val parsed = extractAuthCodeAndState(rawCodeOrUrl)
-                if (!parsed.error.isNullOrBlank()) {
-                    error("Google sign-in declined: ${parsed.error}")
-                }
-                val code = parsed.code?.takeIf { it.isNotBlank() }
-                    ?: error("Could not find an authorization code in that input.")
-
-                val expectedState = session?.state ?: prefs.loadPendingOAuthState()
-                val hasCallbackParams = rawCodeOrUrl.contains("?") ||
-                    rawCodeOrUrl.contains("code=") ||
-                    rawCodeOrUrl.contains("paste=")
-                if (!expectedState.isNullOrBlank()) {
-                    if ((!parsed.state.isNullOrBlank() || hasCallbackParams) && parsed.state != expectedState) {
-                        error("OAuth state mismatch. Please start sign-in again.")
+                    val parsed = extractAuthCodeAndState(rawCodeOrUrl)
+                    if (!parsed.error.isNullOrBlank()) {
+                        error("Google sign-in declined: ${parsed.error}")
                     }
-                }
+                    val code = parsed.code?.takeIf { it.isNotBlank() }
+                        ?: error("Could not find an authorization code in that input.")
 
-                val redirectUri = session?.redirectUri
-                    ?: prefs.loadPendingRedirectUri()
-                    ?: defaultRedirectUriFor(clientId, null)
-                val formBuilder = FormBody.Builder()
-                    .add("code", code)
-                    .add("client_id", clientId)
-                    .add("redirect_uri", redirectUri)
-                    .add("grant_type", "authorization_code")
-
-                if (clientSecret.isNotBlank()) {
-                    formBuilder.add("client_secret", clientSecret)
-                }
-                val verifier = session?.codeVerifier
-                    ?: prefs.loadPendingCodeVerifier()
-                if (!verifier.isNullOrBlank()) {
-                    formBuilder.add("code_verifier", verifier)
-                }
-
-                val req = Request.Builder()
-                    .url(TOKEN_URL)
-                    .post(formBuilder.build())
-                    .build()
-
-                val respJson = client.newCall(req).execute().use { resp ->
-                    val text = resp.body?.string().orEmpty()
-                    if (!resp.isSuccessful) {
-                        val errMsg = runCatching { JSONObject(text).optString("error_description") }
-                            .getOrNull()?.takeIf { it.isNotBlank() }
-                            ?: runCatching { JSONObject(text).optString("error") }.getOrNull()
-                            ?: "Token exchange failed (HTTP ${resp.code})"
-                        error(errMsg)
+                    // If a duplicate callback arrives after the first exchange already succeeded,
+                    // return the saved tokens/profile instead of failing with "Malformed auth code."
+                    val existingTokens = prefs.loadGoogleTokens()
+                    val existingProfile = prefs.loadAccountProfile()
+                    if (activeSession == null && existingTokens != null && existingProfile != null && !existingTokens.isExpiredOrExpiringSoon()) {
+                        return@runCatching existingTokens to existingProfile
                     }
-                    JSONObject(text)
+
+                    val expectedState = session?.state ?: prefs.loadPendingOAuthState()
+                    val hasCallbackParams = rawCodeOrUrl.contains("?") ||
+                        rawCodeOrUrl.contains("code=") ||
+                        rawCodeOrUrl.contains("paste=")
+                    if (!expectedState.isNullOrBlank()) {
+                        if ((!parsed.state.isNullOrBlank() || hasCallbackParams) && parsed.state != expectedState) {
+                            error("OAuth state mismatch. Please start sign-in again.")
+                        }
+                    }
+
+                    val redirectUri = session?.redirectUri
+                        ?: prefs.loadPendingRedirectUri()
+                        ?: defaultRedirectUriFor(clientId, null)
+                    val formBuilder = FormBody.Builder()
+                        .add("code", code)
+                        .add("client_id", clientId)
+                        .add("redirect_uri", redirectUri)
+                        .add("grant_type", "authorization_code")
+
+                    if (clientSecret.isNotBlank()) {
+                        formBuilder.add("client_secret", clientSecret)
+                    }
+                    val verifier = session?.codeVerifier
+                        ?: prefs.loadPendingCodeVerifier()
+                    if (!verifier.isNullOrBlank()) {
+                        formBuilder.add("code_verifier", verifier)
+                    }
+
+                    val req = Request.Builder()
+                        .url(TOKEN_URL)
+                        .post(formBuilder.build())
+                        .build()
+
+                    val respJson = client.newCall(req).execute().use { resp ->
+                        val text = resp.body?.string().orEmpty()
+                        if (!resp.isSuccessful) {
+                            val errMsg = runCatching { JSONObject(text).optString("error_description") }
+                                .getOrNull()?.takeIf { it.isNotBlank() }
+                                ?: runCatching { JSONObject(text).optString("error") }.getOrNull()
+                                ?: "Token exchange failed (HTTP ${resp.code})"
+                            error(errMsg)
+                        }
+                        JSONObject(text)
+                    }
+
+                    val accessToken = respJson.getString("access_token")
+                    val refreshToken = respJson.optString("refresh_token").takeIf { it.isNotBlank() }
+                        ?: prefs.loadGoogleTokens()?.refreshToken
+                    val expiresInSec = respJson.optLong("expires_in", 3600L)
+                    val tokens = GoogleTokens(
+                        accessToken = accessToken,
+                        refreshToken = refreshToken,
+                        expiresAtMs = System.currentTimeMillis() + expiresInSec * 1000L,
+                    )
+
+                    val profile = fetchUserProfile(accessToken)
+                    prefs.saveGoogleTokens(tokens)
+                    prefs.saveAccountProfile(profile)
+                    prefs.clearPendingOAuthSession()
+                    activeSession = null
+                    stopAuthServer()
+                    tokens to profile
                 }
-
-                val accessToken = respJson.getString("access_token")
-                val refreshToken = respJson.optString("refresh_token").takeIf { it.isNotBlank() }
-                    ?: prefs.loadGoogleTokens()?.refreshToken
-                val expiresInSec = respJson.optLong("expires_in", 3600L)
-                val tokens = GoogleTokens(
-                    accessToken = accessToken,
-                    refreshToken = refreshToken,
-                    expiresAtMs = System.currentTimeMillis() + expiresInSec * 1000L,
-                )
-
-                val profile = fetchUserProfile(accessToken)
-                prefs.saveGoogleTokens(tokens)
-                prefs.saveAccountProfile(profile)
-                prefs.clearPendingOAuthSession()
-                stopAuthServer()
-                tokens to profile
             }
         }
 
@@ -635,14 +655,25 @@ class GoogleAuthManager(
         }
 
         private fun extractAuthCodeAndStateInternal(rawInput: String, depth: Int): ParsedOAuthResponse {
-            val trimmed = rawInput.trim()
+            val trimmed = rawInput.trim().trim('"', '\'')
             if (trimmed.isEmpty() || depth > 2) return ParsedOAuthResponse()
 
             val query = when {
                 trimmed.contains("?") -> trimmed.substringAfter("?").substringBefore("#")
                 trimmed.contains("code=") || trimmed.contains("error=") || trimmed.contains("paste=") ->
                     trimmed.substringBefore("#")
-                else -> return ParsedOAuthResponse(code = trimmed)
+                trimmed.startsWith("http://", ignoreCase = true) ||
+                    trimmed.startsWith("https://", ignoreCase = true) ||
+                    trimmed.startsWith("localhost:", ignoreCase = true) ||
+                    trimmed.startsWith("127.0.0.1:", ignoreCase = true) -> return ParsedOAuthResponse()
+                else -> {
+                    val decodedRaw = if (trimmed.contains("%2F", ignoreCase = true)) {
+                        runCatching { URLDecoder.decode(trimmed, "UTF-8") }.getOrDefault(trimmed)
+                    } else {
+                        trimmed
+                    }
+                    return ParsedOAuthResponse(code = decodedRaw.substringBefore("&").substringBefore("#").trim())
+                }
             }
 
             var code: String? = null

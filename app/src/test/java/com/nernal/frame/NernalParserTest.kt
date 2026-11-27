@@ -207,6 +207,12 @@ class NernalParserTest {
         val parsedRaw = GoogleAuthManager.extractAuthCodeAndState("4/0RawCodeOnly")
         assertEquals("4/0RawCodeOnly", parsedRaw.code)
 
+        val parsedUrlEncodedRaw = GoogleAuthManager.extractAuthCodeAndState("4%2F0UrlEncodedRawCode&scope=email")
+        assertEquals("4/0UrlEncodedRawCode", parsedUrlEncodedRaw.code)
+
+        val parsedBareUrlWithoutCode = GoogleAuthManager.extractAuthCodeAndState("http://localhost:3000/auth/callback")
+        assertNull(parsedBareUrlWithoutCode.code)
+
         val parsedErr = GoogleAuthManager.extractAuthCodeAndState("http://localhost:8080/?error=access_denied")
         assertEquals("access_denied", parsedErr.error)
     }
